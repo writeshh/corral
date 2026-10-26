@@ -98,7 +98,8 @@ Corral uses the "common" build set. It includes these extensions:
 
 bcmath, bz2, calendar, ctype, curl, dom, exif, fileinfo, filter, ftp, gd, gmp, iconv, mbregex, mbstring, mysqlnd, openssl, pcntl, pdo, pdo_mysql, pdo_pgsql, pdo_sqlite, pgsql, phar, posix, redis, session, simplexml, soap, sockets, sqlite3, tokenizer, xml, xmlreader, xmlwriter, zip, zlib.
 
-The set does not include intl, sodium, opcache, or Xdebug.
+The set does not include intl, sodium, or Xdebug.
+PHP 8.5 and later always include OPcache. Earlier versions do not include it.
 If you need one of these extensions, install PHP with Homebrew, for example `brew install php@8.4`.
 Corral also finds Homebrew PHP versions. A version that Corral installed has priority over the Homebrew version.
 
