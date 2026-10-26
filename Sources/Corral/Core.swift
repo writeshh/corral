@@ -7,6 +7,20 @@ struct Config: Codable, Equatable {
     var links: [String: String] = [:]    // site name -> directory
     var secured: Set<String> = []
     var isolated: [String: String] = [:] // site name -> PHP version
+
+    init() {}
+
+    // Missing keys keep their defaults, so a config.json from an older Corral still loads.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Config()
+        tld = try c.decodeIfPresent(String.self, forKey: .tld) ?? d.tld
+        php = try c.decodeIfPresent(String.self, forKey: .php)
+        parked = try c.decodeIfPresent([String].self, forKey: .parked) ?? d.parked
+        links = try c.decodeIfPresent([String: String].self, forKey: .links) ?? d.links
+        secured = try c.decodeIfPresent(Set<String>.self, forKey: .secured) ?? d.secured
+        isolated = try c.decodeIfPresent([String: String].self, forKey: .isolated) ?? d.isolated
+    }
 }
 
 /// Optional `.corral.json` in a site folder.
@@ -59,15 +73,17 @@ final class Corral {
 
     let home: String
     let brew: String
-    var config: Config
+    var config = Config()
+    private(set) var loadError: String?
 
     init(home: String? = nil) {
         let env = ProcessInfo.processInfo.environment
         self.home = home ?? env["CORRAL_HOME"] ?? NSHomeDirectory() + "/Library/Application Support/Corral"
         self.brew = env["HOMEBREW_PREFIX"] ?? "/opt/homebrew"
         let data = try? Data(contentsOf: URL(fileURLWithPath: self.home + "/config.json"))
-        self.config = data.flatMap { try? JSONDecoder().decode(Config.self, from: $0) } ?? Config()
-        if data == nil { // first run: park ~/Corral, like Herd parks ~/Herd
+        if let data {
+            do { config = try JSONDecoder().decode(Config.self, from: data) } catch { loadError = "\(error)" }
+        } else { // first run: park ~/Corral, like Herd parks ~/Herd
             config.parked = [NSHomeDirectory() + "/Corral"]
             if home == nil { try? FileManager.default.createDirectory(atPath: config.parked[0], withIntermediateDirectories: true) }
         }
@@ -79,6 +95,8 @@ final class Corral {
     var certs: String { home + "/certs" }
 
     func save() throws {
+        // Never replace a config.json that failed to load: the user's settings would be lost.
+        if let loadError { throw CorralError("\(home)/config.json is not valid. Repair or delete it. \(loadError)") }
         try mkdirs(home)
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
