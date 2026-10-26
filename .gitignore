@@ -1,0 +1,11 @@
+# Build output
+.build/
+.swiftpm/
+Corral.app/
+
+# Private files for the repository owner
+.local/
+CLAUDE.md
+
+# macOS
+.DS_Store
