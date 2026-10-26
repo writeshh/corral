@@ -46,11 +46,35 @@ Corral writes one `nginx.conf` file with one server block for each site.
 A request for an unknown host gets a 404 response.
 After a change, Corral tests the configuration and reloads nginx.
 
+### Bundled binaries
+
+`scripts/build-deps.sh` compiles nginx and dnsmasq from source.
+The script checks the SHA-256 checksum of each source archive.
+nginx links OpenSSL, PCRE2, and zlib statically.
+The binaries need only the macOS system libraries.
+`bundle.sh` copies the binaries into `Corral.app/Contents/Resources/bin/`.
+
+Corral looks for each binary in this order:
+
+1. The `CORRAL_NGINX` or `CORRAL_DNSMASQ` environment variable
+2. `Corral.app/Contents/Resources/bin/`
+3. Homebrew
+
 ### PHP-FPM
 
-Corral finds PHP versions in `/opt/homebrew/opt/php` and `/opt/homebrew/opt/php@X.Y`.
+`corral php:install` downloads static PHP builds from static-php-cli into `php/<version>/`.
+Corral also finds Homebrew PHP in `/opt/homebrew/opt/php` and `/opt/homebrew/opt/php@X.Y`.
+If both sources have the same version, Corral uses its own build.
 Each version that a site uses gets its own PHP-FPM process and socket.
 The global version is the newest installed version, unless you set a different one with `corral use`.
+
+Corral writes small shell scripts to `bin/`:
+
+- `php` runs the global version.
+- `php84`, `php85`, and so on run a specific version.
+- `corral` is a link to the Corral binary.
+
+The scripts give the `php.ini` file of each static build to PHP.
 
 ### HTTPS
 
@@ -75,3 +99,4 @@ Both tools can run at the same time.
 | `Sources/Corral/main.swift` | Entry point. With arguments, it runs the CLI. Without arguments, it starts the menu bar app. |
 | `Tests/CorralTests/` | Tests |
 | `bundle.sh` | Builds `Corral.app` |
+| `scripts/build-deps.sh` | Builds nginx and dnsmasq from source into `.deps/` |

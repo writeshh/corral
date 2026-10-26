@@ -14,11 +14,14 @@
    swift test
    ```
 
-3. Build `Corral.app`:
+3. Build `Corral.app`. The first build also runs `scripts/build-deps.sh`, which compiles nginx and dnsmasq into `.deps/`.
 
    ```sh
    ./bundle.sh
    ```
+
+To update nginx, dnsmasq, or their libraries, change the version and the SHA-256 checksum in `scripts/build-deps.sh`.
+Then delete `.deps/` and run `./bundle.sh` again.
 
 To test without changes to your real configuration, set `CORRAL_HOME` to a short temporary path.
 

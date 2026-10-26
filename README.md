@@ -4,7 +4,8 @@ Corral is a local PHP development environment for macOS.
 It serves each project folder at its own domain, for example `http://blog.internal`.
 Corral is a menu bar app and a command-line tool in one binary.
 
-Corral does not collect telemetry. It does not send data to any server.
+Corral does not collect telemetry.
+Corral connects to the internet only when you install a PHP version.
 
 ## Features
 
@@ -14,33 +15,33 @@ Corral does not collect telemetry. It does not send data to any server.
 - Use one global PHP version, or pin a different version to a site.
 - Answer subdomains, for example `api.blog.internal`.
 - Control everything from the menu bar or from the `corral` command.
+- Include nginx and dnsmasq. Install PHP with one command.
 - Run next to Laravel Herd without conflicts.
 
 ## Requirements
 
 - macOS 14 or later
-- Apple silicon (Corral looks for Homebrew in `/opt/homebrew`)
-- Homebrew
+- Apple silicon
 - Xcode or the Xcode Command Line Tools, to build Corral
 
 ## Installation
 
-1. Install the dependencies:
-
-   ```sh
-   brew install php nginx dnsmasq
-   ```
-
-2. Build the app:
+1. Build the app. The first build compiles nginx and dnsmasq from source. This takes approximately one minute.
 
    ```sh
    ./bundle.sh
    ```
 
-3. Add the `corral` command to your path:
+2. Install PHP. This step also adds the `corral` and `php` commands to `~/Library/Application Support/Corral/bin`.
 
    ```sh
-   ln -s "$PWD/Corral.app/Contents/MacOS/Corral" /opt/homebrew/bin/corral
+   ./Corral.app/Contents/MacOS/Corral php:install 8.5
+   ```
+
+3. Add the commands to your path. Add this line to `~/.zshrc`, then open a new terminal:
+
+   ```sh
+   export PATH="$HOME/Library/Application Support/Corral/bin:$PATH"
    ```
 
 4. Configure macOS networking. Corral asks for your administrator password one time:
@@ -75,6 +76,8 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral isolate <version> [site]` | Pin a PHP version to one site. |
 | `corral unisolate [site]` | Use the global PHP version for a site again. |
 | `corral php:list` | List the installed PHP versions. |
+| `corral php:install <version>` | Download and install a PHP version, for example `8.4`. |
+| `corral php:uninstall <version>` | Remove a PHP version that Corral installed. |
 | `corral open [site]` | Open a site in the browser. |
 | `corral start` | Start nginx, dnsmasq, and PHP-FPM. |
 | `corral stop` | Stop all services. |
@@ -86,7 +89,22 @@ Each subfolder of `~/Corral` becomes a site.
 
 If you do not give a site name, Corral uses the site in the current folder.
 
-To install more PHP versions, use Homebrew, for example `brew install php@8.3`.
+## PHP
+
+`corral php:install` downloads static PHP builds from [static-php-cli](https://static-php.dev).
+Corral uses the "common" build set. It includes these extensions:
+
+bcmath, bz2, calendar, ctype, curl, dom, exif, fileinfo, filter, ftp, gd, gmp, iconv, mbregex, mbstring, mysqlnd, openssl, pcntl, pdo, pdo_mysql, pdo_pgsql, pdo_sqlite, pgsql, phar, posix, redis, session, simplexml, soap, sockets, sqlite3, tokenizer, xml, xmlreader, xmlwriter, zip, zlib.
+
+The set does not include intl, sodium, opcache, or Xdebug.
+If you need one of these extensions, install PHP with Homebrew, for example `brew install php@8.4`.
+Corral also finds Homebrew PHP versions. A version that Corral installed has priority over the Homebrew version.
+
+Each PHP version that Corral installed has a `php.ini` file in `~/Library/Application Support/Corral/php/<version>/`.
+Corral keeps your changes to this file when you update the version.
+Run `corral restart` after a change.
+
+static-php-cli does not publish checksums. Corral uses HTTPS for the download.
 
 ## Document root
 
@@ -106,6 +124,8 @@ Corral keeps its state in `~/Library/Application Support/Corral`:
 | `run/` | Process IDs and PHP-FPM sockets |
 | `logs/` | nginx and PHP-FPM logs |
 | `certs/` | Local CA and site certificates |
+| `php/` | PHP versions that Corral installed |
+| `bin/` | `php` (global version) and `php84`-style commands for each version |
 
 You can change the domain suffix with the `tld` key in `config.json`.
 After a change, run `corral uninstall` and `corral install` again.
@@ -117,7 +137,7 @@ These environment variables change the defaults:
 | `CORRAL_HOME` | Use a different state folder. Keep the path short. Socket paths must be shorter than 104 bytes. |
 | `CORRAL_NGINX` | Use a different nginx binary. |
 | `CORRAL_DNSMASQ` | Use a different dnsmasq binary. |
-| `HOMEBREW_PREFIX` | Look for Homebrew in a different folder. |
+| `HOMEBREW_PREFIX` | Look for Homebrew PHP in a different folder. The default is `/opt/homebrew`. |
 
 ## Uninstall
 
@@ -129,13 +149,14 @@ These environment variables change the defaults:
 
 2. Remove the local CA from the login keychain. Use the Keychain Access app and search for "Corral Local CA".
 3. Delete `~/Library/Application Support/Corral`.
-4. Delete `Corral.app` and the `corral` link.
+4. Delete `Corral.app`.
+5. Remove the Corral line from `~/.zshrc`.
 
 ## Limitations
 
-- Corral does not include nginx, dnsmasq, or PHP. You must install them with Homebrew.
+- Corral does not include Composer or Node.js.
 - Corral does not have framework-specific drivers. Subdirectory WordPress multisite does not work.
-- Corral does not manage databases, mail, or Node.js versions.
+- Corral does not manage databases or mail.
 
 ## Documentation
 
@@ -146,3 +167,7 @@ These environment variables change the defaults:
 ## License
 
 Corral is available under the [MIT License](LICENSE).
+
+`Corral.app` includes nginx, OpenSSL, PCRE2, zlib, and dnsmasq.
+Their licenses are in `Corral.app/Contents/Resources/licenses/`.
+dnsmasq is GPL software. Its source code is in the same folder.
