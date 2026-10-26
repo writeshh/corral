@@ -19,3 +19,6 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `corral php:install` and `corral php:uninstall` for static PHP builds from static-php-cli.
 - `php`, `php84`-style, and `corral` commands in `~/Library/Application Support/Corral/bin`.
 - "Install PHP" menu in the menu bar app.
+- WordPress detection with nginx rules for multisite in subdirectories.
+- `web/` document root for Craft CMS, Drupal, and Bedrock.
+- `.corral.json` site settings for the document root and extra nginx directives.

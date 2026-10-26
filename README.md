@@ -108,10 +108,40 @@ static-php-cli does not publish checksums. Corral uses HTTPS for the download.
 
 ## Document root
 
-If a site folder contains a `public` folder, Corral serves the `public` folder.
-If not, Corral serves the site folder.
+Corral selects the document root in this order:
+
+1. The `root` value in the `.corral.json` file of the site
+2. The `public` folder, for Laravel and Symfony
+3. The `web` folder, for Craft CMS, Drupal, and Bedrock
+4. The site folder
+
 Corral sends requests for missing files to `index.php`.
-This works for Laravel, Symfony, and most other PHP frameworks.
+This works for most PHP frameworks.
+
+## WordPress
+
+Corral finds WordPress when the document root contains `wp-load.php` or `wp-config.php`.
+For WordPress sites, Corral adds the nginx rules for multisite in subdirectories.
+Multisite with subdomains also works, because each site answers `*.<site>.internal`.
+
+## Site settings
+
+To change the settings of one site, add a `.corral.json` file to the site folder:
+
+```json
+{
+  "root": "dist",
+  "nginx": "add_header X-Frame-Options DENY;"
+}
+```
+
+| Key | Effect |
+|---|---|
+| `root` | The document root, relative to the site folder |
+| `nginx` | Extra nginx directives for the server block of the site |
+
+Run `corral restart` after a change.
+If the file is not valid JSON, `corral start` shows an error.
 
 ## Configuration
 
@@ -155,7 +185,7 @@ These environment variables change the defaults:
 ## Limitations
 
 - Corral does not include Composer or Node.js.
-- Corral does not have framework-specific drivers. Subdirectory WordPress multisite does not work.
+- Corral has special rules for WordPress only. Use `.corral.json` for frameworks such as Magento.
 - Corral does not manage databases or mail.
 
 ## Documentation

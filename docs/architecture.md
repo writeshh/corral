@@ -44,6 +44,9 @@ Root never reads a file that your user can write.
 nginx runs as your user.
 Corral writes one `nginx.conf` file with one server block for each site.
 A request for an unknown host gets a 404 response.
+Each server block sends requests for missing files to `index.php`.
+For WordPress sites, the block also contains the rewrite rules for multisite in subdirectories.
+The `nginx` value from `.corral.json` goes into the server block of that site.
 After a change, Corral tests the configuration and reloads nginx.
 
 ### Bundled binaries
