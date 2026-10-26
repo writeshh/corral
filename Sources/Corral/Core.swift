@@ -1,0 +1,451 @@
+import Foundation
+
+struct Config: Codable, Equatable {
+    var tld = "internal"                 // ICANN-reserved private TLD, so it can't clash with Herd's .test
+    var php: String?                     // global PHP version; nil = newest installed
+    var parked: [String] = []
+    var links: [String: String] = [:]    // site name -> directory
+    var secured: Set<String> = []
+    var isolated: [String: String] = [:] // site name -> PHP version
+}
+
+struct Site: Identifiable, Equatable {
+    let name: String
+    let path: String
+    var id: String { name }
+    var docroot: String {
+        var isDir: ObjCBool = false
+        let pub = path + "/public"
+        return FileManager.default.fileExists(atPath: pub, isDirectory: &isDir) && isDir.boolValue ? pub : path
+    }
+}
+
+struct CorralError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
+/// Mirrors Herd's layout: unprivileged nginx + dnsmasq + one php-fpm pool per PHP version.
+/// Root is only used once by `install()` (resolver file + loopback alias + pf redirect).
+final class Corral {
+    static let loopback = "127.0.0.2", httpPort = 8180, httpsPort = 8543, dnsPort = 53535
+    static let daemonLabel = "dev.corral.network"
+
+    let home: String
+    let brew: String
+    var config: Config
+
+    init(home: String? = nil) {
+        let env = ProcessInfo.processInfo.environment
+        self.home = home ?? env["CORRAL_HOME"] ?? NSHomeDirectory() + "/Library/Application Support/Corral"
+        self.brew = env["HOMEBREW_PREFIX"] ?? "/opt/homebrew"
+        let data = try? Data(contentsOf: URL(fileURLWithPath: self.home + "/config.json"))
+        self.config = data.flatMap { try? JSONDecoder().decode(Config.self, from: $0) } ?? Config()
+        if data == nil { // first run: park ~/Corral, like Herd parks ~/Herd
+            config.parked = [NSHomeDirectory() + "/Corral"]
+            if home == nil { try? FileManager.default.createDirectory(atPath: config.parked[0], withIntermediateDirectories: true) }
+        }
+    }
+
+    var conf: String { home + "/conf" }
+    var run: String { home + "/run" }
+    var logs: String { home + "/logs" }
+    var certs: String { home + "/certs" }
+
+    func save() throws {
+        try mkdirs(home)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try enc.encode(config).write(to: URL(fileURLWithPath: home + "/config.json"))
+    }
+
+    // MARK: Sites
+
+    static func slug(_ s: String) -> String {
+        let mapped = s.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" }
+        return String(mapped).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    func sites() -> [Site] {
+        let fm = FileManager.default
+        var byName: [String: Site] = [:]
+        for dir in config.parked {
+            for entry in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] where !entry.hasPrefix(".") {
+                var isDir: ObjCBool = false
+                let path = dir + "/" + entry
+                guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { continue }
+                let name = Self.slug(entry)
+                if !name.isEmpty { byName[name] = Site(name: name, path: path) }
+            }
+        }
+        for (name, path) in config.links { byName[name] = Site(name: name, path: path) } // links win over parked
+        return byName.values.sorted { $0.name < $1.name }
+    }
+
+    func site(named name: String?) throws -> Site {
+        let cwd = FileManager.default.currentDirectoryPath
+        let all = sites()
+        let match = if let name { all.first { $0.name == Self.slug(name) } } else { all.first { $0.path == cwd } }
+        if let match { return match }
+        throw CorralError("No site \(name.map { "'\($0)'" } ?? "for \(cwd)"). Park its parent or run `corral link`.")
+    }
+
+    func host(_ site: Site) -> String { "\(site.name).\(config.tld)" }
+
+    func url(_ site: Site) -> URL {
+        URL(string: (config.secured.contains(site.name) ? "https://" : "http://") + host(site))!
+    }
+
+    // MARK: PHP
+
+    /// version ("8.5") -> php-fpm path, from Homebrew's opt/php and opt/php@X.Y links.
+    func phpVersions() -> [String: String] {
+        let fm = FileManager.default
+        var out: [String: String] = [:]
+        for name in (try? fm.contentsOfDirectory(atPath: brew + "/opt")) ?? [] where name == "php" || name.hasPrefix("php@") {
+            let fpm = "\(brew)/opt/\(name)/sbin/php-fpm"
+            guard fm.isExecutableFile(atPath: fpm),
+                  let cellar = try? fm.destinationOfSymbolicLink(atPath: "\(brew)/opt/\(name)") else { continue }
+            // "../Cellar/php/8.5.11_1" -> "8.5"
+            let v = URL(fileURLWithPath: cellar).lastPathComponent.split(separator: ".").prefix(2).joined(separator: ".")
+            out[v] = fpm
+        }
+        return out
+    }
+
+    static func sortVersions(_ v: some Sequence<String>) -> [String] {
+        v.sorted { $0.compare($1, options: .numeric) == .orderedAscending }
+    }
+
+    func globalPHP(_ installed: [String: String]) -> String? {
+        config.php.flatMap { installed[$0] != nil ? $0 : nil } ?? Self.sortVersions(installed.keys).last
+    }
+
+    func php(for site: Site, _ installed: [String: String]) -> String? {
+        config.isolated[site.name].flatMap { installed[$0] != nil ? $0 : nil } ?? globalPHP(installed)
+    }
+
+    func sock(_ version: String) -> String { "\(run)/php\(version).sock" }
+
+    // MARK: Config rendering
+
+    func nginxConf(sites: [Site], installed: [String: String]) -> String {
+        var out = """
+        worker_processes 1;
+        pid "\(run)/nginx.pid";
+        error_log "\(logs)/nginx-error.log";
+        events { worker_connections 1024; }
+        http {
+            types {
+                text/html html htm; text/css css; text/plain txt; application/javascript js mjs;
+                application/json json map; application/wasm wasm; application/pdf pdf; image/svg+xml svg;
+                image/png png; image/jpeg jpg jpeg; image/gif gif; image/webp webp; image/avif avif;
+                image/x-icon ico; font/woff woff; font/woff2 woff2;
+            }
+            default_type application/octet-stream;
+            access_log off;
+            sendfile on;
+            client_max_body_size 512M;
+            client_body_temp_path "\(run)/tmp/body";
+            proxy_temp_path "\(run)/tmp/proxy";
+            fastcgi_temp_path "\(run)/tmp/fastcgi";
+
+            server { listen 127.0.0.1:\(Self.httpPort) default_server; return 404 "No Corral site here.\\n"; }
+
+        """
+        for site in sites {
+            let names = "\(host(site)) *.\(host(site))"
+            let sock = php(for: site, installed).map(self.sock) ?? "\(run)/no-php.sock"
+            if config.secured.contains(site.name) {
+                out += """
+                    server { listen 127.0.0.1:\(Self.httpPort); server_name \(names); return 301 https://$host$request_uri; }
+                    server {
+                        listen 127.0.0.1:\(Self.httpsPort) ssl;
+                        http2 on;
+                        server_name \(names);
+                        ssl_certificate "\(certs)/\(host(site)).crt";
+                        ssl_certificate_key "\(certs)/\(host(site)).key";
+                \(siteBody(site, sock: sock, https: true))
+                    }
+
+                """
+            } else {
+                out += """
+                    server {
+                        listen 127.0.0.1:\(Self.httpPort);
+                        server_name \(names);
+                \(siteBody(site, sock: sock, https: false))
+                    }
+
+                """
+            }
+        }
+        return out + "}\n"
+    }
+
+    // Front-controller routing (Laravel, Symfony, Statamic, …). Herd instead routes everything
+    // through Valet's server.php + drivers. ponytail: add per-framework drivers when a site needs one.
+    private func siteBody(_ site: Site, sock: String, https: Bool) -> String {
+        """
+                root "\(site.docroot)";
+                index index.php index.html;
+                charset utf-8;
+                location / { try_files $uri $uri/ /index.php?$query_string; }
+                location ~ /\\.(?!well-known) { deny all; }
+                location ~ \\.php$ {
+                    try_files $uri =404;
+                    fastcgi_pass "unix:\(sock)";
+                    fastcgi_index index.php;
+                    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                    fastcgi_param DOCUMENT_ROOT $document_root;
+                    fastcgi_param QUERY_STRING $query_string;
+                    fastcgi_param REQUEST_METHOD $request_method;
+                    fastcgi_param CONTENT_TYPE $content_type;
+                    fastcgi_param CONTENT_LENGTH $content_length;
+                    fastcgi_param SCRIPT_NAME $fastcgi_script_name;
+                    fastcgi_param REQUEST_URI $request_uri;
+                    fastcgi_param DOCUMENT_URI $document_uri;
+                    fastcgi_param SERVER_PROTOCOL $server_protocol;
+                    fastcgi_param GATEWAY_INTERFACE CGI/1.1;
+                    fastcgi_param SERVER_SOFTWARE nginx;
+                    fastcgi_param REMOTE_ADDR $remote_addr;
+                    fastcgi_param REMOTE_PORT $remote_port;
+                    fastcgi_param SERVER_ADDR $server_addr;
+                    fastcgi_param SERVER_NAME $host;
+                    fastcgi_param SERVER_PORT \(https ? 443 : 80);
+                    \(https ? "fastcgi_param HTTPS on;" : "")
+                    fastcgi_param REDIRECT_STATUS 200;
+                    fastcgi_param HTTP_PROXY "";
+                    fastcgi_buffers 16 64k;
+                    fastcgi_buffer_size 64k;
+                }
+        """
+    }
+
+    func fpmConf(_ version: String) -> String {
+        """
+        [global]
+        pid = "\(run)/php\(version)-fpm.pid"
+        error_log = "\(logs)/php\(version)-fpm.log"
+        daemonize = yes
+
+        [corral]
+        listen = "\(sock(version))"
+        listen.mode = 0600
+        pm = dynamic
+        pm.max_children = 5
+        pm.start_servers = 2
+        pm.min_spare_servers = 1
+        pm.max_spare_servers = 3
+        catch_workers_output = yes
+
+        """
+    }
+
+    func writeConfigs() throws {
+        for d in [conf, logs, certs, run + "/tmp"] { try mkdirs(d) }
+        let installed = phpVersions()
+        try nginxConf(sites: sites(), installed: installed).write(toFile: conf + "/nginx.conf", atomically: true, encoding: .utf8)
+        for v in installed.keys { try fpmConf(v).write(toFile: "\(conf)/php\(v)-fpm.conf", atomically: true, encoding: .utf8) }
+    }
+
+    // MARK: Processes
+
+    func tool(_ name: String) throws -> String {
+        if let p = ProcessInfo.processInfo.environment["CORRAL_\(name.uppercased())"] { return p }
+        for dir in ["bin", "sbin"] where FileManager.default.isExecutableFile(atPath: "\(brew)/\(dir)/\(name)") {
+            return "\(brew)/\(dir)/\(name)"
+        }
+        throw CorralError("\(name) not found. Install it with: brew install \(name)")
+    }
+
+    private var nginxArgs: [String] { ["-p", home + "/", "-c", conf + "/nginx.conf", "-e", logs + "/nginx-error.log"] }
+
+    /// Versions that need a running FPM pool: the global one plus every isolated one that's installed.
+    func neededPHP(_ installed: [String: String]) -> [String] {
+        Self.sortVersions(Set(sites().compactMap { php(for: $0, installed) } + [globalPHP(installed)].compactMap { $0 }))
+    }
+
+    func status() -> [(String, Bool)] {
+        [("nginx", alive(run + "/nginx.pid")), ("dnsmasq", alive(run + "/dnsmasq.pid"))]
+            + neededPHP(phpVersions()).map { ("php \($0)", alive("\(run)/php\($0)-fpm.pid")) }
+    }
+
+    var isRunning: Bool { alive(run + "/nginx.pid") }
+
+    /// Idempotent: writes configs, starts whatever is down, reloads nginx if it's already up.
+    func start() throws {
+        try writeConfigs()
+        let installed = phpVersions()
+        if installed.isEmpty { throw CorralError("No Homebrew PHP found. Install it with: brew install php") }
+        for v in neededPHP(installed) where !alive("\(run)/php\(v)-fpm.pid") {
+            try sh(installed[v]!, ["--fpm-config", "\(conf)/php\(v)-fpm.conf"])
+        }
+        if !alive(run + "/dnsmasq.pid") {
+            try sh(tool("dnsmasq"), [
+                "--conf-file=/dev/null", "--port=\(Self.dnsPort)", "--listen-address=127.0.0.1", "--bind-interfaces",
+                "--no-resolv", "--no-hosts", "--address=/\(config.tld)/\(Self.loopback)", "--pid-file=\(run)/dnsmasq.pid",
+            ])
+        }
+        let nginx = try tool("nginx")
+        try sh(nginx, nginxArgs + ["-t", "-q"])
+        if isRunning {
+            try sh(nginx, nginxArgs + ["-s", "reload"])
+            usleep(250_000) // ponytail: reload is async (<100ms observed); poll worker PIDs if this ever races
+        } else {
+            try sh(nginx, nginxArgs)
+        }
+    }
+
+    func stop() {
+        let pids = ((try? FileManager.default.contentsOfDirectory(atPath: run)) ?? []).filter { $0.hasSuffix(".pid") }
+        for f in pids { if let pid = readPid(run + "/" + f) { kill(pid, SIGTERM) } }
+        for _ in 0..<30 where pids.contains(where: { alive(run + "/" + $0) }) { usleep(100_000) }
+    }
+
+    /// Re-render and reload if running; just re-render otherwise.
+    func apply() throws {
+        try save()
+        if isRunning { try start() } else { try writeConfigs() }
+    }
+
+    // MARK: TLS (same approach as Valet's Site.php: local CA + per-site leaf, trusted in the login keychain)
+
+    var caPem: String { certs + "/CorralCA.pem" }
+
+    @discardableResult
+    func ensureCA() throws -> Bool {
+        if FileManager.default.fileExists(atPath: caPem) { return false }
+        try mkdirs(certs)
+        let cfg = certs + "/ca.cnf"
+        try """
+        [req]
+        distinguished_name = dn
+        prompt = no
+        [dn]
+        CN = Corral Local CA
+        O = Corral
+        [v3_ca]
+        basicConstraints = critical,CA:TRUE
+        keyUsage = critical,keyCertSign,cRLSign
+        subjectKeyIdentifier = hash
+        """.write(toFile: cfg, atomically: true, encoding: .utf8)
+        try sh("/usr/bin/openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650", "-config", cfg,
+                                    "-extensions", "v3_ca", "-keyout", certs + "/CorralCA.key", "-out", caPem])
+        chmod(certs + "/CorralCA.key", 0o600)
+        return true
+    }
+
+    func trustCA() throws {
+        try sh("/usr/bin/security", ["add-trusted-cert", "-r", "trustRoot", "-k",
+                                     NSHomeDirectory() + "/Library/Keychains/login.keychain-db", caPem])
+    }
+
+    func makeCert(_ host: String) throws {
+        let base = "\(certs)/\(host)"
+        try """
+        basicConstraints = CA:FALSE
+        keyUsage = critical,digitalSignature,keyEncipherment
+        extendedKeyUsage = serverAuth
+        subjectAltName = DNS:\(host),DNS:*.\(host)
+        """.write(toFile: base + ".ext", atomically: true, encoding: .utf8)
+        try sh("/usr/bin/openssl", ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=\(host)",
+                                    "-keyout", base + ".key", "-out", base + ".csr"])
+        // 397 days: Apple rejects longer-lived leaf certificates (Valet's Site.php has the same cap).
+        try sh("/usr/bin/openssl", ["x509", "-req", "-sha256", "-days", "397", "-in", base + ".csr",
+                                    "-CA", caPem, "-CAkey", certs + "/CorralCA.key",
+                                    "-set_serial", "0x" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16),
+                                    "-extfile", base + ".ext", "-out", base + ".crt"])
+    }
+
+    func setSecure(_ site: Site, _ on: Bool) throws {
+        if on {
+            if try ensureCA() { try trustCA() }
+            try makeCert(host(site))
+            config.secured.insert(site.name)
+        } else {
+            config.secured.remove(site.name)
+            for ext in ["crt", "key", "csr", "ext"] { try? FileManager.default.removeItem(atPath: "\(certs)/\(host(site)).\(ext)") }
+        }
+        try apply()
+    }
+
+    // MARK: One-time system setup (the only part that needs root)
+
+    var isInstalled: Bool { FileManager.default.fileExists(atPath: "/etc/resolver/" + config.tld) }
+
+    func installScript() throws -> String {
+        let boot = """
+        /sbin/ifconfig lo0 alias \(Self.loopback) up
+        printf 'rdr pass on lo0 inet proto tcp from any to \(Self.loopback) port 80 -> 127.0.0.1 port \(Self.httpPort)\\nrdr pass on lo0 inet proto tcp from any to \(Self.loopback) port 443 -> 127.0.0.1 port \(Self.httpsPort)\\n' | /sbin/pfctl -a com.apple/corral -f -
+        /sbin/pfctl -E
+        """
+        let plist: [String: Any] = ["Label": Self.daemonLabel, "ProgramArguments": ["/bin/sh", "-c", boot], "RunAtLoad": true]
+        let xml = String(decoding: try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0), as: UTF8.self)
+        return """
+        set -e
+        mkdir -p /etc/resolver
+        printf 'nameserver 127.0.0.1\\nport \(Self.dnsPort)\\n' > /etc/resolver/\(config.tld)
+        cat > /Library/LaunchDaemons/\(Self.daemonLabel).plist <<'PLIST'
+        \(xml)
+        PLIST
+        chown root:wheel /Library/LaunchDaemons/\(Self.daemonLabel).plist
+        launchctl bootout system/\(Self.daemonLabel) 2>/dev/null || true
+        launchctl bootstrap system /Library/LaunchDaemons/\(Self.daemonLabel).plist
+        """
+    }
+
+    func uninstallScript() -> String {
+        """
+        launchctl bootout system/\(Self.daemonLabel) 2>/dev/null || true
+        rm -f /Library/LaunchDaemons/\(Self.daemonLabel).plist /etc/resolver/\(config.tld)
+        /sbin/pfctl -a com.apple/corral -F all 2>/dev/null || true
+        /sbin/ifconfig lo0 -alias \(Self.loopback) 2>/dev/null || true
+        """
+    }
+
+    /// One admin prompt (like Herd's helper install), via the standard macOS authorization dialog.
+    func runAsAdmin(_ script: String) throws {
+        try mkdirs(conf)
+        let path = conf + "/admin.sh"
+        try script.write(toFile: path, atomically: true, encoding: .utf8)
+        let escaped = path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        try sh("/usr/bin/osascript", ["-e", "do shell script \"/bin/sh \" & quoted form of \"\(escaped)\" with administrator privileges"])
+    }
+
+    // MARK: Helpers
+
+    func mkdirs(_ path: String) throws {
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+    }
+
+    func readPid(_ file: String) -> pid_t? {
+        (try? String(contentsOfFile: file, encoding: .utf8)).flatMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    func alive(_ pidFile: String) -> Bool { readPid(pidFile).map { kill($0, 0) == 0 } ?? false }
+
+    /// Output goes to a temp file, not a pipe: daemonizing children keep inherited fds open.
+    @discardableResult
+    func sh(_ exe: String, _ args: [String]) throws -> String {
+        let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("corral-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: outURL.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: outURL) }
+        let handle = try FileHandle(forWritingTo: outURL)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: exe)
+        p.arguments = args
+        p.standardOutput = handle
+        p.standardError = handle
+        p.standardInput = FileHandle.nullDevice
+        try p.run()
+        p.waitUntilExit()
+        try handle.close()
+        let out = (try? String(contentsOf: outURL, encoding: .utf8)) ?? ""
+        guard p.terminationStatus == 0 else {
+            throw CorralError("\((exe as NSString).lastPathComponent) failed: \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
+        return out
+    }
+}
