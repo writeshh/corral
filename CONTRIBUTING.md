@@ -36,6 +36,30 @@ You can build Corral without Xcode. The Command Line Tools have two limits:
   swift build --build-tests && swift test --skip-build
   ```
 
+## PHP builds
+
+`scripts/build-php.sh <version>` builds static PHP with static-php-cli. Example: `scripts/build-php.sh 8.4`.
+The script writes `.deps/php-dist/php-<version>-macos-aarch64.tar.gz` and a `.sha256` file.
+The first run downloads the sources and can take a long time. `spc doctor` installs missing build tools with Homebrew.
+
+To test a local build with Corral:
+
+1. Write a `manifest.json` next to the archive:
+
+   ```json
+   {"8.4": {"version": "8.4.27", "file": "php-8.4.27-macos-aarch64.tar.gz", "sha256": "<checksum>"}}
+   ```
+
+2. Install it:
+
+   ```sh
+   CORRAL_PHP_SOURCE="file://$PWD/.deps/php-dist" corral php:install 8.4
+   ```
+
+`.github/workflows/php.yml` builds every supported version on GitHub Actions each Monday, and when you start it by hand.
+It uploads the archives and `manifest.json` to the `php-builds` release.
+To add a PHP version, add it to the workflow matrix and to `Corral.phpChoices`.
+
 ## Rules
 
 - Do not add telemetry, analytics, or crash reporting.

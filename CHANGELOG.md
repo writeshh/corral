@@ -28,6 +28,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `corral php:install` uses Corral's own PHP builds, with a SHA-256 checksum check. The builds include mysqli, intl, and sodium, so WordPress works. `scripts/build-php.sh` and `.github/workflows/php.yml` make the builds.
+
 - The menu bar app is now a panel with a site list, service status, inline errors, and an empty state. Slow work, such as a PHP download, runs in the background, so the panel does not freeze.
 
 ### Fixed

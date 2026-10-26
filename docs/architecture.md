@@ -80,7 +80,10 @@ Corral looks for each binary in this order:
 
 ### PHP-FPM
 
-`corral php:install` downloads static PHP builds from static-php-cli into `php/<version>/`.
+`corral php:install` reads `manifest.json` from the `php-builds` release of this repository.
+It downloads the archive for the version, checks its SHA-256 checksum, and unpacks it into `php/<version>/`.
+`.github/workflows/php.yml` makes these archives with `scripts/build-php.sh`, which uses static-php-cli.
+The builds do not read `/usr/local/etc/php/conf.d`. Corral gives each version its `php.ini` file with `-c`.
 Corral also finds Homebrew PHP in `/opt/homebrew/opt/php` and `/opt/homebrew/opt/php@X.Y`.
 If both sources have the same version, Corral uses its own build.
 Each version that a site uses gets its own PHP-FPM process and socket.

@@ -96,21 +96,21 @@ If you do not give a site name, Corral uses the site in the current folder.
 
 ## PHP
 
-`corral php:install` downloads static PHP builds from [static-php-cli](https://static-php.dev).
-Corral uses the "common" build set. It includes these extensions:
+`corral php:install` downloads a static PHP build that Corral builds itself.
+The builds come from the `php-builds` release of this repository.
+Corral checks the SHA-256 checksum of each download. If the checksum is not correct, Corral does not install the build.
 
-bcmath, bz2, calendar, ctype, curl, dom, exif, fileinfo, filter, ftp, gd, gmp, iconv, mbregex, mbstring, mysqlnd, openssl, pcntl, pdo, pdo_mysql, pdo_pgsql, pdo_sqlite, pgsql, phar, posix, redis, session, simplexml, soap, sockets, sqlite3, tokenizer, xml, xmlreader, xmlwriter, zip, zlib.
+The builds use [static-php-cli](https://static-php.dev), the same tool that Laravel Herd uses. They include these extensions:
 
-The set does not include intl, sodium, or Xdebug.
-PHP 8.5 and later always include OPcache. Earlier versions do not include it.
+bcmath, bz2, calendar, ctype, curl, dom, exif, fileinfo, filter, ftp, gd (with FreeType, JPEG, and WebP), gmp, iconv, igbinary, intl, mbregex, mbstring, mysqli, mysqlnd, opcache, openssl, pcntl, pdo, pdo_mysql, pdo_pgsql, pdo_sqlite, pgsql, phar, posix, readline, redis, session, shmop, simplexml, soap, sockets, sodium, sqlite3, sysvmsg, sysvsem, sysvshm, tokenizer, xml, xmlreader, xmlwriter, xsl, zip, zlib.
+
+The builds do not include imagick, imap, ldap, mongodb, sqlsrv, or Xdebug.
 If you need one of these extensions, install PHP with Homebrew, for example `brew install php@8.4`.
 Corral also finds Homebrew PHP versions. A version that Corral installed has priority over the Homebrew version.
 
 Each PHP version that Corral installed has a `php.ini` file in `~/Library/Application Support/Corral/php/<version>/`.
 Corral keeps your changes to this file when you update the version.
 Run `corral restart` after a change.
-
-static-php-cli does not publish checksums. Corral uses HTTPS for the download.
 
 ## Menu bar app
 
