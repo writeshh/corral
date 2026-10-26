@@ -7,6 +7,7 @@ struct Config: Codable, Equatable {
     var links: [String: String] = [:]    // site name -> directory
     var secured: Set<String> = []
     var isolated: [String: String] = [:] // site name -> PHP version
+    var proxies: [String: String] = [:]  // site name -> upstream URL
 
     init() {}
 
@@ -20,6 +21,7 @@ struct Config: Codable, Equatable {
         links = try c.decodeIfPresent([String: String].self, forKey: .links) ?? d.links
         secured = try c.decodeIfPresent(Set<String>.self, forKey: .secured) ?? d.secured
         isolated = try c.decodeIfPresent([String: String].self, forKey: .isolated) ?? d.isolated
+        proxies = try c.decodeIfPresent([String: String].self, forKey: .proxies) ?? d.proxies
     }
 }
 
@@ -34,7 +36,15 @@ struct Site: Identifiable, Equatable {
     let path: String
     var overrides = SiteOverrides()
     var overridesError: String?
+    var proxy: URL?
     var id: String { name }
+
+    /// A proxy site: nginx forwards requests to `proxy`, for example a Next.js dev server.
+    init(name: String, proxy: URL) {
+        self.name = name
+        self.path = proxy.absoluteString
+        self.proxy = proxy
+    }
 
     init(name: String, path: String) {
         self.name = name
@@ -55,7 +65,7 @@ struct Site: Identifiable, Equatable {
     }
 
     var isWordPress: Bool {
-        ["wp-load.php", "wp-config.php"].contains { FileManager.default.fileExists(atPath: "\(docroot)/\($0)") }
+        proxy == nil && ["wp-load.php", "wp-config.php"].contains { FileManager.default.fileExists(atPath: "\(docroot)/\($0)") }
     }
 }
 
@@ -123,6 +133,7 @@ final class Corral {
             }
         }
         for (name, path) in config.links { byName[name] = Site(name: name, path: path) } // links win over parked
+        for (name, url) in config.proxies { if let url = URL(string: url) { byName[name] = Site(name: name, proxy: url) } }
         return byName.values.sorted { $0.name < $1.name }
     }
 
@@ -278,12 +289,15 @@ final class Corral {
             proxy_temp_path "\(run)/tmp/proxy";
             fastcgi_temp_path "\(run)/tmp/fastcgi";
 
+            map $http_upgrade $connection_upgrade { default upgrade; "" close; }
+
             server { listen 127.0.0.1:\(Self.httpPort) default_server; return 404 "No Corral site here.\\n"; }
 
         """
         for site in sites {
             let names = "\(host(site)) *.\(host(site))"
             let sock = php(for: site, installed).map(self.sock) ?? "\(run)/no-php.sock"
+            let body = { (https: Bool) in site.proxy.map(self.proxyBody) ?? self.siteBody(site, sock: sock, https: https) }
             if config.secured.contains(site.name) {
                 out += """
                     server { listen 127.0.0.1:\(Self.httpPort); server_name \(names); return 301 https://$host$request_uri; }
@@ -293,7 +307,7 @@ final class Corral {
                         server_name \(names);
                         ssl_certificate "\(certs)/\(host(site)).crt";
                         ssl_certificate_key "\(certs)/\(host(site)).key";
-                \(siteBody(site, sock: sock, https: true))
+                \(body(true))
                     }
 
                 """
@@ -302,13 +316,37 @@ final class Corral {
                     server {
                         listen 127.0.0.1:\(Self.httpPort);
                         server_name \(names);
-                \(siteBody(site, sock: sock, https: false))
+                \(body(false))
                     }
 
                 """
             }
         }
         return out + "}\n"
+    }
+
+    // Dev servers (Next.js, Vite, portless, …). `.localhost` names may not resolve outside a browser,
+    // so nginx connects to 127.0.0.1 and keeps the name in the Host header and TLS SNI for name-based routers.
+    func proxyBody(_ url: URL) -> String {
+        let host = url.host ?? "127.0.0.1"
+        let port = url.port.map { ":\($0)" } ?? ""
+        let target = host == "localhost" || host.hasSuffix(".localhost") ? "127.0.0.1" : host
+        let tls = url.scheme == "https" ? "proxy_ssl_server_name on;\n            proxy_ssl_name \(host);" : ""
+        return """
+                location / {
+                    proxy_pass \(url.scheme ?? "http")://\(target)\(port);
+                    proxy_http_version 1.1;
+                    proxy_set_header Host "\(host)\(port)";
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection $connection_upgrade;
+                    proxy_set_header X-Forwarded-Host $host;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_buffering off;
+                    proxy_read_timeout 1h;
+                    \(tls)
+                }
+        """
     }
 
     // WordPress multisite in subdirectories: map /site/wp-admin/... and /site/*.php back to the core files.

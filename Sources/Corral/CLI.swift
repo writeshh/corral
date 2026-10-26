@@ -9,6 +9,9 @@ enum CLI {
       status                       service state
       park [dir] | forget [dir]    serve every subfolder of dir as <folder>.<tld>
       link [name] | unlink [name]  serve the current folder as <name>.<tld>
+      proxy <name> <url>           serve a dev server as <name>.<tld>, for example
+                                   corral proxy shop http://shop.localhost:1355
+      unproxy <name>               remove a proxy site
       sites                        list sites
       secure [site] | unsecure [site]
       use <ver>                    set the global PHP version
@@ -63,10 +66,24 @@ enum CLI {
                 let site = try corral.site(named: arg1)
                 corral.config.links[site.name] = nil
                 try corral.apply()
+            case "proxy":
+                guard let arg1, let arg2, let url = URL(string: arg2), ["http", "https"].contains(url.scheme), url.host != nil else {
+                    throw CorralError("Usage: corral proxy <name> <http(s)://host:port>")
+                }
+                let name = Corral.slug(arg1)
+                corral.config.proxies[name] = arg2
+                try corral.apply()
+                print("http://\(name).\(corral.config.tld) -> \(arg2)")
+            case "unproxy":
+                guard let arg1, corral.config.proxies.removeValue(forKey: Corral.slug(arg1)) != nil else {
+                    throw CorralError("No proxy named '\(arg1 ?? "")'.")
+                }
+                try corral.apply()
             case "sites":
                 let installed = corral.phpVersions()
                 for s in corral.sites() {
-                    print("\(corral.url(s).absoluteString)\tphp \(corral.php(for: s, installed) ?? "-")\t\(s.docroot)")
+                    let detail = s.proxy == nil ? "php \(corral.php(for: s, installed) ?? "-")\t\(s.docroot)" : "proxy\t\(s.path)"
+                    print("\(corral.url(s).absoluteString)\t\(detail)")
                 }
             case "secure", "unsecure":
                 let site = try corral.site(named: arg1)

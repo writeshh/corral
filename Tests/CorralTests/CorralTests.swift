@@ -79,6 +79,35 @@ import Testing
     #expect(throws: CorralError.self) { try c.writeConfigs() }
 }
 
+@Test func proxiesAndConfigLoading() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+
+    // A config.json from an older version (no "proxies" key) keeps its settings.
+    try Data(#"{"tld": "test", "parked": ["/x"], "links": {}, "secured": [], "isolated": {}}"#.utf8)
+        .write(to: URL(fileURLWithPath: tmp + "/config.json"))
+    let c = Corral(home: tmp)
+    #expect(c.loadError == nil && c.config.tld == "test" && c.config.parked == ["/x"] && c.config.proxies.isEmpty)
+
+    c.config.proxies = ["shop": "https://shop.localhost:1355", "api": "http://127.0.0.1:3000"]
+    let sites = c.sites()
+    let conf = c.nginxConf(sites: sites, installed: [:])
+    #expect(conf.contains("proxy_pass https://127.0.0.1:1355;"))
+    #expect(conf.contains("proxy_set_header Host \"shop.localhost:1355\";"))
+    #expect(conf.contains("proxy_ssl_name shop.localhost;"))
+    #expect(conf.contains("proxy_pass http://127.0.0.1:3000;"))
+    #expect(conf.contains("map $http_upgrade $connection_upgrade"))
+    #expect(!conf.contains("fastcgi_pass")) // proxies never touch PHP
+
+    // A broken config.json is never overwritten.
+    try Data("{broken".utf8).write(to: URL(fileURLWithPath: tmp + "/config.json"))
+    let broken = Corral(home: tmp)
+    #expect(broken.loadError != nil)
+    #expect(throws: CorralError.self) { try broken.save() }
+    #expect(try String(contentsOfFile: tmp + "/config.json", encoding: .utf8) == "{broken")
+}
+
 @Test func managedPhpAndShims() throws {
     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
     defer { try? FileManager.default.removeItem(atPath: tmp) }

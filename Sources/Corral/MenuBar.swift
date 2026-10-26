@@ -76,20 +76,24 @@ struct MenuContent: View {
             ForEach(model.sites) { site in
                 Menu(corral.host(site)) {
                     Button("Open in Browser") { NSWorkspace.shared.open(corral.url(site)) }
-                    Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: site.path)]) }
+                    if site.proxy == nil {
+                        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: site.path)]) }
+                    }
                     Toggle("HTTPS", isOn: Binding(
                         get: { corral.config.secured.contains(site.name) },
                         set: { on in model.perform { try corral.setSecure(site, on) } }
                     ))
-                    Picker("PHP", selection: Binding(
-                        get: { corral.config.isolated[site.name] ?? "" },
-                        set: { v in model.perform {
-                            corral.config.isolated[site.name] = v.isEmpty ? nil : v
-                            try corral.apply()
-                        } }
-                    )) {
-                        Text("Global").tag("")
-                        ForEach(model.versions, id: \.self) { Text($0).tag($0) }
+                    if site.proxy == nil {
+                        Picker("PHP", selection: Binding(
+                            get: { corral.config.isolated[site.name] ?? "" },
+                            set: { v in model.perform {
+                                corral.config.isolated[site.name] = v.isEmpty ? nil : v
+                                try corral.apply()
+                            } }
+                        )) {
+                            Text("Global").tag("")
+                            ForEach(model.versions, id: \.self) { Text($0).tag($0) }
+                        }
                     }
                 }
             }
