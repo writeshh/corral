@@ -77,7 +77,8 @@ struct CorralError: LocalizedError {
 
 /// Mirrors Herd's layout: unprivileged nginx + dnsmasq + one php-fpm pool per PHP version.
 /// Root is only used once by `install()` (resolver file + loopback alias + pf redirect).
-final class Corral {
+// @unchecked: the menu bar app calls Corral only from Model's serial work queue. The CLI is single-threaded.
+final class Corral: @unchecked Sendable {
     static let loopback = "127.0.0.2", httpPort = 8180, httpsPort = 8543, dnsPort = 53535
     static let daemonLabel = "dev.corral.network"
 
