@@ -633,7 +633,7 @@ final class Corral: @unchecked Sendable {
         return """
         set -e
         mkdir -p /etc/resolver "\((Self.resolverBackup as NSString).deletingLastPathComponent)"
-        if [ -f \(file) ] && ! grep -q 'port \(Self.dnsPort)' \(file); then cp \(file) "\(Self.resolverBackup)"; fi
+        if [ -f \(file) ] && ! grep -q 'port \(Self.dnsPort)' \(file); then cp -p \(file) "\(Self.resolverBackup)"; fi
         printf 'nameserver 127.0.0.1\\nport \(Self.dnsPort)\\n' > \(file)
         \(Self.flushDNS)
         """

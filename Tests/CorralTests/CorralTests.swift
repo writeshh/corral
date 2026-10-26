@@ -162,7 +162,7 @@ import Testing
     let c = Corral(home: tmp + "/home")
     #expect(c.tlds == ["internal", "test"])
     let take = c.takeoverScript(), back = c.handbackScript()
-    #expect(take.contains("cp /etc/resolver/test \"\(Corral.resolverBackup)\""))   // keeps Herd's file
+    #expect(take.contains("cp -p /etc/resolver/test \"\(Corral.resolverBackup)\""))   // keeps Herd's file
     #expect(back.contains("mv \"\(Corral.resolverBackup)\" /etc/resolver/test"))   // and restores it
     #expect(c.uninstallScript().hasPrefix(back))                                // uninstall hands .test back
     #expect(!c.uninstallScript().contains("rm -f /Library/LaunchDaemons/dev.corral.network.plist /etc/resolver"))
