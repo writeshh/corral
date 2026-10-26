@@ -142,3 +142,7 @@ These environment variables change the defaults:
 - [How Corral works](docs/architecture.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
+
+## License
+
+Corral is available under the [MIT License](LICENSE).
