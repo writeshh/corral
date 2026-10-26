@@ -690,6 +690,73 @@ final class Corral: @unchecked Sendable {
         try sh("/usr/bin/osascript", ["-e", "do shell script \"/bin/sh \" & quoted form of \"\(escaped)\" with administrator privileges"])
     }
 
+    // MARK: Import from Laravel Herd
+
+    struct HerdImport {
+        var parked: [String] = []
+        var links: [String] = []
+        var secured: [String] = []
+        var skipped: [String] = []  // Herd certificates with no matching site
+        var php: String?
+    }
+
+    static let herdHome = NSHomeDirectory() + "/Library/Application Support/Herd"
+
+    /// Copies Herd's parked folders, links, secured sites and global PHP version. Reads Herd's files, never writes them.
+    func importHerd(from herd: String = herdHome, trust: Bool = true) throws -> HerdImport {
+        let fm = FileManager.default
+        let valet = herd + "/config/valet", sitesDir = valet + "/Sites"
+        guard let data = fm.contents(atPath: valet + "/config.json"),
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CorralError("No Herd configuration found in \(valet).")
+        }
+        func norm(_ p: String) -> String { URL(fileURLWithPath: p).standardizedFileURL.path }
+        func isDir(_ p: String) -> Bool { var d: ObjCBool = false; return fm.fileExists(atPath: p, isDirectory: &d) && d.boolValue }
+        var result = HerdImport()
+
+        // Herd's own Sites folder holds only its links. Those come next.
+        for path in (json["paths"] as? [String] ?? []).map(norm)
+        where path != norm(sitesDir) && isDir(path) && !config.parked.map(norm).contains(path) {
+            config.parked.append(path)
+            result.parked.append(path)
+        }
+
+        // Links: Sites/<name> is a symlink to the project folder.
+        let existing = Dictionary(sites().map { ($0.name, norm($0.path)) }, uniquingKeysWith: { a, _ in a })
+        for entry in ((try? fm.contentsOfDirectory(atPath: sitesDir)) ?? []).sorted() {
+            guard let target = try? fm.destinationOfSymbolicLink(atPath: "\(sitesDir)/\(entry)"), isDir(target) else { continue }
+            let name = Self.slug(entry)
+            if existing[name] == norm(target) { continue } // already served under this name
+            config.links[name] = norm(target)
+            result.links.append(name)
+        }
+
+        // Secured sites: Certificates/<site>.<tld>.crt
+        let suffix = ".\(json["tld"] as? String ?? "test").crt"
+        let all = sites()
+        for file in ((try? fm.contentsOfDirectory(atPath: valet + "/Certificates")) ?? []).sorted() where file.hasSuffix(suffix) {
+            let name = Self.slug(String(file.dropLast(suffix.count)))
+            guard let site = all.first(where: { $0.name == name }) else { result.skipped.append(name); continue }
+            if config.secured.contains(name) { continue }
+            if try ensureCA(), trust { try trustCA() }
+            try makeCert(hostnames(site))
+            config.secured.insert(name)
+            result.secured.append(name)
+        }
+
+        // Global PHP: herd.sock links to herd84.sock for PHP 8.4.
+        if let target = try? fm.destinationOfSymbolicLink(atPath: herd + "/herd.sock"),
+           let m = (target as NSString).lastPathComponent.firstMatch(of: /^herd(\d)(\d+)\.sock$/) {
+            let version = "\(m.1).\(m.2)"
+            if phpVersions()[version] == nil { try installPHP(version) }
+            config.php = version
+            result.php = version
+        }
+
+        try apply()
+        return result
+    }
+
     // MARK: Helpers
 
     func mkdirs(_ path: String) throws {

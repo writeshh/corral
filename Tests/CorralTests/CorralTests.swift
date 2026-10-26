@@ -170,3 +170,38 @@ import Testing
     c.config.tld = "test"
     #expect(c.tlds == ["test"])
 }
+
+@Test func importFromHerd() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let fm = FileManager.default
+    let herd = tmp + "/Herd", valet = herd + "/config/valet"
+    for d in ["projects/shop/public", "projects/rfsu", "other/blog", "\(valet)/Sites", "\(valet)/Certificates"] {
+        try fm.createDirectory(atPath: d.hasPrefix("/") ? d : "\(tmp)/\(d)", withIntermediateDirectories: true)
+    }
+    let config = ["tld": "test", "paths": ["\(valet)/Sites", "\(tmp)/projects/", "\(tmp)/missing"]] as [String: Any]
+    try JSONSerialization.data(withJSONObject: config).write(to: URL(fileURLWithPath: valet + "/config.json"))
+    try fm.createSymbolicLink(atPath: valet + "/Sites/rfsudev", withDestinationPath: tmp + "/projects/rfsu")   // alias
+    try fm.createSymbolicLink(atPath: valet + "/Sites/blog", withDestinationPath: tmp + "/other/blog")        // outside parked
+    try fm.createSymbolicLink(atPath: valet + "/Sites/shop", withDestinationPath: tmp + "/projects/shop")     // same as parked
+    try fm.createSymbolicLink(atPath: valet + "/Sites/dead", withDestinationPath: tmp + "/nowhere")
+    for f in ["shop.test.crt", "rfsudev.test.crt", "gone.test.crt", "shop.test.key"] { fm.createFile(atPath: "\(valet)/Certificates/\(f)", contents: nil) }
+    try fm.createSymbolicLink(atPath: herd + "/herd.sock", withDestinationPath: herd + "/herd84.sock")
+
+    let c = Corral(home: tmp + "/home")
+    c.config.parked = []
+    try c.mkdirs(c.phpDir + "/8.4")  // PHP 8.4 is "installed", so the import downloads nothing
+    for bin in ["php", "php-fpm"] { fm.createFile(atPath: "\(c.phpDir)/8.4/\(bin)", contents: Data("#!/bin/sh\n".utf8)); chmod("\(c.phpDir)/8.4/\(bin)", 0o755) }
+
+    let r = try c.importHerd(from: herd, trust: false)
+    #expect(r.parked == [tmp + "/projects"])                  // trailing slash removed, Sites and missing folder ignored
+    #expect(r.links == ["blog", "rfsudev"])                   // shop is already parked, dead link ignored
+    #expect(c.config.links["rfsudev"] == tmp + "/projects/rfsu")
+    #expect(r.secured == ["rfsudev", "shop"])
+    #expect(r.skipped == ["gone"])
+    #expect(r.php == "8.4" && c.config.php == "8.4")
+    #expect(fm.fileExists(atPath: c.certs + "/shop.internal.crt"))
+
+    let again = try c.importHerd(from: herd, trust: false)    // a second run changes nothing
+    #expect(again.parked.isEmpty && again.links.isEmpty && again.secured.isEmpty)
+}

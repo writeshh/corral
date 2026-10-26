@@ -6,6 +6,7 @@ enum CLI {
 
       install | uninstall          one-time system setup (resolver, loopback alias, pf 80/443 redirect)
       takeover | handback          send .test to Corral, or give it back to Herd
+      import:herd                  copy Herd's parked folders, links, secured sites and global PHP
       start | stop | restart       nginx, dnsmasq, php-fpm
       status                       service state
       park [dir] | forget [dir]    serve every subfolder of dir as <folder>.<tld>
@@ -48,6 +49,13 @@ enum CLI {
             case "status":
                 for (name, up) in corral.status() { print("\(up ? "●" : "○") \(name)") }
                 print(".\(Corral.sharedTLD) goes to \(corral.ownsTest ? "Corral" : "Herd (or nothing)")")
+            case "import:herd":
+                let r = try corral.importHerd()
+                print("Parked folders added: \(r.parked.isEmpty ? "none" : r.parked.joined(separator: ", "))")
+                print("Links added: \(r.links.isEmpty ? "none" : r.links.joined(separator: ", "))")
+                print("Sites secured: \(r.secured.count)\(r.secured.isEmpty ? "" : " (\(r.secured.joined(separator: ", ")))")")
+                if !r.skipped.isEmpty { print("Certificates skipped, no matching site: \(r.skipped.joined(separator: ", "))") }
+                print("Global PHP: \(r.php ?? "not found in Herd")")
             case "takeover":
                 try corral.takeover()
                 print(".\(Corral.sharedTLD) now goes to Corral. Run `corral handback` before you start Herd again.")
