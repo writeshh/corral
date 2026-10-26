@@ -163,7 +163,7 @@ final class Corral: @unchecked Sendable {
     var phpDir: String { home + "/php" }
     var binDir: String { home + "/bin" }
 
-    // ponytail: add a new minor version here when static-php-cli publishes it.
+    // ponytail: keep in step with the matrix in .github/workflows/php.yml.
     static let phpChoices = ["8.5", "8.4", "8.3", "8.2", "8.1"]
 
     /// version ("8.5") -> php-fpm path. Corral's own static builds win over Homebrew's opt/php and opt/php@X.Y.
@@ -209,30 +209,35 @@ final class Corral: @unchecked Sendable {
 
     """
 
-    /// Downloads the newest static PHP build for a minor version from static-php-cli (the "common" extension set).
+    /// Corral's own PHP builds: the "php-builds" release that .github/workflows/php.yml publishes.
+    /// CORRAL_PHP_SOURCE points elsewhere, for example a file:// folder with a local build.
+    var phpSource = ProcessInfo.processInfo.environment["CORRAL_PHP_SOURCE"]
+        ?? "https://github.com/writeshh/corral/releases/download/php-builds"
+
+    /// Downloads the newest build for a minor version, checks its SHA-256 from manifest.json, then installs it.
     func installPHP(_ minor: String) throws {
         let fm = FileManager.default
-        #if arch(arm64)
-        let arch = "aarch64"
-        #else
-        let arch = "x86_64"
+        #if !arch(arm64)
+        throw CorralError("Corral's PHP builds are for Apple silicon only. Use Homebrew PHP on this Mac.")
         #endif
-        let base = "https://dl.static-php.dev/static-php-cli/common/"
-        let listing = try sh("/usr/bin/curl", ["-fsSL", base + "?format=json"])
-        let regex = try NSRegularExpression(pattern: "php-\(NSRegularExpression.escapedPattern(for: minor))\\.(\\d+)-fpm-macos-\(arch)\\.tar\\.gz")
-        let patches = regex.matches(in: listing, range: NSRange(listing.startIndex..., in: listing))
-            .compactMap { Range($0.range(at: 1), in: listing).flatMap { Int(listing[$0]) } }
-        guard let patch = patches.max() else { throw CorralError("No static PHP \(minor) build for macOS \(arch).") }
+        let manifestText = try sh("/usr/bin/curl", ["-fsSL", phpSource + "/manifest.json"])
+        let manifest = (try? JSONSerialization.jsonObject(with: Data(manifestText.utf8))) as? [String: [String: String]] ?? [:]
+        guard let entry = manifest[minor], let file = entry["file"], let sha256 = entry["sha256"], !file.contains("/") else {
+            let available = Self.sortVersions(manifest.keys).joined(separator: ", ")
+            throw CorralError("No Corral PHP build for \(minor). Available: \(available.isEmpty ? "none" : available).")
+        }
 
-        let dir = "\(phpDir)/\(minor)", tmp = dir + ".download"
+        let dir = "\(phpDir)/\(minor)", tmp = dir + ".download", tarball = tmp + "/php.tar.gz"
         try? fm.removeItem(atPath: tmp)
         try mkdirs(tmp)
-        for kind in ["fpm", "cli"] {
-            let tarball = "\(tmp)/\(kind).tar.gz"
-            try sh("/usr/bin/curl", ["-fsSL", "\(base)php-\(minor).\(patch)-\(kind)-macos-\(arch).tar.gz", "-o", tarball])
-            try sh("/usr/bin/tar", ["xzf", tarball, "-C", tmp])
-            try fm.removeItem(atPath: tarball)
+        try sh("/usr/bin/curl", ["-fsSL", "\(phpSource)/\(file)", "-o", tarball])
+        let actual = try sh("/usr/bin/shasum", ["-a", "256", tarball]).split(separator: " ").first.map(String.init)
+        guard actual == sha256 else {
+            try? fm.removeItem(atPath: tmp)
+            throw CorralError("Checksum mismatch for \(file). Corral did not install it.")
         }
+        try sh("/usr/bin/tar", ["xzf", tarball, "-C", tmp])
+        try fm.removeItem(atPath: tarball)
         for bin in ["php", "php-fpm"] { try sh("/usr/bin/codesign", ["--force", "--sign", "-", "\(tmp)/\(bin)"]) }
         if fm.fileExists(atPath: dir + "/php.ini") {
             try fm.moveItem(atPath: dir + "/php.ini", toPath: tmp + "/php.ini") // keep the user's edits on update

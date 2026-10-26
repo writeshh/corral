@@ -205,3 +205,34 @@ import Testing
     let again = try c.importHerd(from: herd, trust: false)    // a second run changes nothing
     #expect(again.parked.isEmpty && again.links.isEmpty && again.secured.isEmpty)
 }
+
+@Test func installPhpFromManifest() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let fm = FileManager.default
+    let src = tmp + "/release", stage = tmp + "/stage"
+    for d in [src, stage] { try fm.createDirectory(atPath: d, withIntermediateDirectories: true) }
+    for bin in ["php", "php-fpm"] { fm.createFile(atPath: "\(stage)/\(bin)", contents: Data("#!/bin/sh\necho \(bin)\n".utf8)); chmod("\(stage)/\(bin)", 0o755) }
+
+    let c = Corral(home: tmp + "/home")
+    let file = "php-8.4.99-macos-aarch64.tar.gz"
+    try c.sh("/usr/bin/tar", ["czf", "\(src)/\(file)", "-C", stage, "php", "php-fpm"])
+    let sha = try c.sh("/usr/bin/shasum", ["-a", "256", "\(src)/\(file)"]).split(separator: " ")[0]
+    func manifest(_ digest: Substring) throws {
+        try Data(#"{"8.4": {"version": "8.4.99", "file": "\#(file)", "sha256": "\#(digest)"}}"#.utf8)
+            .write(to: URL(fileURLWithPath: src + "/manifest.json"))
+    }
+    c.phpSource = "file://" + src
+
+    try manifest("0000" + sha.dropFirst(4))                 // wrong checksum: nothing gets installed
+    #expect(throws: CorralError.self) { try c.installPHP("8.4") }
+    #expect(!fm.fileExists(atPath: c.phpDir + "/8.4"))
+
+    try manifest(sha)
+    try c.installPHP("8.4")
+    #expect(fm.isExecutableFile(atPath: c.phpDir + "/8.4/php-fpm"))
+    #expect(fm.fileExists(atPath: c.phpDir + "/8.4/php.ini"))
+    #expect(c.phpVersions()["8.4"] == c.phpDir + "/8.4/php-fpm")
+
+    #expect(throws: CorralError.self) { try c.installPHP("7.4") } // not in the manifest
+}
