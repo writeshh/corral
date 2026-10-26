@@ -53,6 +53,32 @@ import Testing
     #expect(try c.installScript().contains("port 53535"))
 }
 
+@Test func driversAndOverrides() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let fm = FileManager.default
+    for dir in ["wp", "craft/web", "custom/dist", "broken"] { try fm.createDirectory(atPath: "\(tmp)/\(dir)", withIntermediateDirectories: true) }
+    fm.createFile(atPath: tmp + "/wp/wp-load.php", contents: nil)
+    fm.createFile(atPath: tmp + "/custom/.corral.json", contents: Data(#"{"root": "dist", "nginx": "add_header X-Test yes;"}"#.utf8))
+    fm.createFile(atPath: tmp + "/broken/.corral.json", contents: Data("{oops".utf8))
+
+    let wp = Site(name: "wp", path: tmp + "/wp")
+    let craft = Site(name: "craft", path: tmp + "/craft")
+    let custom = Site(name: "custom", path: tmp + "/custom")
+    #expect(wp.isWordPress && !craft.isWordPress)
+    #expect(craft.docroot == tmp + "/craft/web")
+    #expect(custom.docroot == tmp + "/custom/dist")
+    #expect(Site(name: "broken", path: tmp + "/broken").overridesError != nil)
+
+    let c = Corral(home: tmp + "/home")
+    let conf = c.nginxConf(sites: [wp, custom], installed: ["8.4": "/x"])
+    #expect(conf.components(separatedBy: "rewrite ^(/[^/]+)?(/wp-.*) $2 last;").count == 2) // only the WordPress site
+    #expect(conf.contains("add_header X-Test yes;"))
+
+    c.config.parked = [tmp]
+    #expect(throws: CorralError.self) { try c.writeConfigs() }
+}
+
 @Test func managedPhpAndShims() throws {
     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
     defer { try? FileManager.default.removeItem(atPath: tmp) }

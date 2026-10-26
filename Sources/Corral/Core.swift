@@ -9,14 +9,39 @@ struct Config: Codable, Equatable {
     var isolated: [String: String] = [:] // site name -> PHP version
 }
 
+/// Optional `.corral.json` in a site folder.
+struct SiteOverrides: Codable, Equatable {
+    var root: String?   // document root, relative to the site folder
+    var nginx: String?  // extra directives inside the site's server block
+}
+
 struct Site: Identifiable, Equatable {
     let name: String
     let path: String
+    var overrides = SiteOverrides()
+    var overridesError: String?
     var id: String { name }
+
+    init(name: String, path: String) {
+        self.name = name
+        self.path = path
+        if let data = FileManager.default.contents(atPath: path + "/.corral.json") {
+            do { overrides = try JSONDecoder().decode(SiteOverrides.self, from: data) } catch { overridesError = "\(error)" }
+        }
+    }
+
+    /// `.corral.json` root, else `public/` (Laravel, Symfony), else `web/` (Craft, Drupal, Bedrock), else the folder.
     var docroot: String {
-        var isDir: ObjCBool = false
-        let pub = path + "/public"
-        return FileManager.default.fileExists(atPath: pub, isDirectory: &isDir) && isDir.boolValue ? pub : path
+        if let root = overrides.root { return URL(fileURLWithPath: root, relativeTo: URL(fileURLWithPath: path + "/")).standardizedFileURL.path }
+        for sub in ["public", "web"] {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: "\(path)/\(sub)", isDirectory: &isDir), isDir.boolValue { return "\(path)/\(sub)" }
+        }
+        return path
+    }
+
+    var isWordPress: Bool {
+        ["wp-load.php", "wp-config.php"].contains { FileManager.default.fileExists(atPath: "\(docroot)/\($0)") }
     }
 }
 
@@ -268,13 +293,25 @@ final class Corral {
         return out + "}\n"
     }
 
-    // Front-controller routing (Laravel, Symfony, Statamic, …). Herd instead routes everything
-    // through Valet's server.php + drivers. ponytail: add per-framework drivers when a site needs one.
+    // WordPress multisite in subdirectories: map /site/wp-admin/... and /site/*.php back to the core files.
+    // Harmless for a single-site install: the rules only apply to paths that do not exist.
+    static let wordPressRules = """
+            if (!-e $request_filename) {
+                rewrite /wp-admin$ $scheme://$host$uri/ permanent;
+                rewrite ^(/[^/]+)?(/wp-.*) $2 last;
+                rewrite ^(/[^/]+)?(/.*\\.php) $2 last;
+            }
+    """
+
+    // Front-controller routing (Laravel, Symfony, Statamic, …) plus per-framework rules.
+    // Herd instead routes everything through Valet's server.php + PHP drivers.
     private func siteBody(_ site: Site, sock: String, https: Bool) -> String {
         """
                 root "\(site.docroot)";
                 index index.php index.html;
                 charset utf-8;
+        \(site.isWordPress ? Self.wordPressRules : "")
+                \(site.overrides.nginx ?? "")
                 location / { try_files $uri $uri/ /index.php?$query_string; }
                 location ~ /\\.(?!well-known) { deny all; }
                 location ~ \\.php$ {
@@ -330,7 +367,11 @@ final class Corral {
     func writeConfigs() throws {
         for d in [conf, logs, certs, run + "/tmp"] { try mkdirs(d) }
         let installed = phpVersions()
-        try nginxConf(sites: sites(), installed: installed).write(toFile: conf + "/nginx.conf", atomically: true, encoding: .utf8)
+        let sites = sites()
+        if let bad = sites.first(where: { $0.overridesError != nil }) {
+            throw CorralError("Invalid \(bad.path)/.corral.json: \(bad.overridesError!)")
+        }
+        try nginxConf(sites: sites, installed: installed).write(toFile: conf + "/nginx.conf", atomically: true, encoding: .utf8)
         for v in installed.keys { try fpmConf(v).write(toFile: "\(conf)/php\(v)-fpm.conf", atomically: true, encoding: .utf8) }
         try writeShims(installed)
     }
