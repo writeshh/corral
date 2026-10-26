@@ -24,6 +24,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `.corral.json` site settings for the document root and extra nginx directives.
 - `corral proxy` and `corral unproxy` for development servers, with WebSocket support. This includes portless apps on `*.localhost`.
 - Each site also answers `<site>.test`. `corral takeover` sends `.test` to Corral, and `corral handback` gives it back to Laravel Herd. The menu bar app has the same switch.
+- `corral import:herd` copies the parked folders, links, secured sites, and global PHP version from Laravel Herd.
 
 ### Changed
 

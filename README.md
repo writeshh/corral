@@ -89,6 +89,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral install` | Configure DNS and ports 80 and 443. |
 | `corral takeover` | Send `.test` to Corral in place of Laravel Herd. |
 | `corral handback` | Give `.test` back to Laravel Herd. |
+| `corral import:herd` | Copy the parked folders, links, secured sites, and global PHP version from Laravel Herd. |
 | `corral uninstall` | Remove the system configuration. |
 
 If you do not give a site name, Corral uses the site in the current folder.
@@ -168,6 +169,21 @@ To use Herd again:
    ```
 
 2. Start Herd.
+
+To copy your Herd setup to Corral, run:
+
+```sh
+corral import:herd
+```
+
+The command copies these settings. It reads the Herd files and does not change them.
+
+- Parked folders
+- Links, for example aliases such as `rfsudev`
+- Secured sites. Corral makes its own certificates for these sites. The first certificate asks you to trust the Corral CA.
+- The global PHP version. If the version is not installed, Corral downloads it.
+
+You can run the command again. It adds only the settings that Corral does not have.
 
 `corral status` shows which tool gets `.test`. The menu bar app has the same switch in the "..." menu.
 `corral uninstall` also gives `.test` back to Herd.
