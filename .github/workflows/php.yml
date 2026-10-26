@@ -1,0 +1,73 @@
+name: PHP builds
+
+# Builds static PHP for each supported version and publishes it to the "php-builds" release.
+# `corral php:install` reads manifest.json from that release and checks each download's SHA-256.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1" # every Monday, to pick up new PHP patch releases
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.1", "8.2", "8.3", "8.4", "8.5"]
+    runs-on: macos-14 # Apple silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache sources
+        uses: actions/cache@v4
+        with:
+          path: .deps/php-build/downloads
+          key: php-sources-${{ matrix.php }}-${{ hashFiles('scripts/build-php.sh') }}
+
+      - name: Build
+        run: ./scripts/build-php.sh ${{ matrix.php }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: php-${{ matrix.php }}
+          path: .deps/php-dist/*
+
+  publish:
+    needs: build
+    if: ${{ !cancelled() }} # publish the versions that built, even if one failed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Write manifest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Keep the entries of versions that did not build this time.
+          gh release download php-builds --pattern manifest.json --output previous.json 2>/dev/null || echo '{}' > previous.json
+          python3 - <<'EOF'
+          import json, pathlib, re
+          manifest = json.loads(pathlib.Path("previous.json").read_text())
+          for sha in sorted(pathlib.Path("dist").glob("*.sha256")):
+              digest, name = sha.read_text().split()
+              version = re.match(r"php-(\d+\.\d+\.\d+)-", name).group(1)
+              manifest[version.rsplit(".", 1)[0]] = {"version": version, "file": name, "sha256": digest}
+          pathlib.Path("dist/manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
+          print(json.dumps(manifest, indent=2, sort_keys=True))
+          EOF
+
+      - name: Upload to the php-builds release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view php-builds >/dev/null 2>&1 || \
+            gh release create php-builds --title "PHP builds" --notes "Static PHP for Corral. Built by .github/workflows/php.yml."
+          gh release upload php-builds dist/* --clobber
