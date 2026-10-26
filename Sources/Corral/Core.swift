@@ -401,8 +401,26 @@ final class Corral: @unchecked Sendable {
         """
     }
 
+    /// The socket for `DB_HOST=localhost`. PHP looks for /tmp/mysql.sock, but DBngin and Herd create
+    /// /tmp/mysql_3306.sock or /tmp/mysql-3306.sock. nil when PHP's default already works or no MySQL runs.
+    /// ponytail: picks one server (3306 first) when several run. Add a config key if that is not enough.
+    static func mysqlSocket(in dir: String = "/tmp") -> String? {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: dir + "/mysql.sock") { return nil }
+        let socks = ((try? fm.contentsOfDirectory(atPath: dir)) ?? [])
+            .filter { $0.hasPrefix("mysql") && !$0.hasPrefix("mysqlx") && $0.hasSuffix(".sock") }
+            .sorted { ($0.contains("3306") ? 0 : 1, $0) < ($1.contains("3306") ? 0 : 1, $1) }
+        return socks.first.map { dir + "/" + $0 }
+    }
+
+    /// php.ini values that Corral sets for every PHP version, in FPM and in the bin/ shims.
+    func phpOverrides() -> [(String, String)] {
+        Self.mysqlSocket().map { [("mysqli.default_socket", $0), ("pdo_mysql.default_socket", $0)] } ?? []
+    }
+
     func fpmConf(_ version: String) -> String {
-        """
+        let overrides = phpOverrides().map { "php_value[\($0.0)] = \"\($0.1)\"\n" }.joined()
+        return """
         [global]
         pid = "\(run)/php\(version)-fpm.pid"
         error_log = "\(logs)/php\(version)-fpm.log"
@@ -417,7 +435,7 @@ final class Corral: @unchecked Sendable {
         pm.min_spare_servers = 1
         pm.max_spare_servers = 3
         catch_workers_output = yes
-
+        \(overrides)
         """
     }
 
@@ -442,7 +460,8 @@ final class Corral: @unchecked Sendable {
         }
         let global = globalPHP(installed)
         for (v, fpm) in installed {
-            let args = ([cliPath(fpm)] + iniArgs(fpm)).map { "\"\($0)\"" }.joined(separator: " ")
+            let ini = iniArgs(fpm) + phpOverrides().flatMap { ["-d", "\($0.0)=\($0.1)"] }
+            let args = ([cliPath(fpm)] + ini).map { "\"\($0)\"" }.joined(separator: " ")
             for name in ["php" + v.replacingOccurrences(of: ".", with: "")] + (v == global ? ["php"] : []) {
                 let path = "\(binDir)/\(name)"
                 try "#!/bin/sh\nexec \(args) \"$@\"\n".write(toFile: path, atomically: true, encoding: .utf8)

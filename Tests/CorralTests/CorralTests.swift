@@ -128,6 +128,20 @@ import Testing
     c.config.php = "8.4"
     try c.writeShims(["8.4": fpm])
     let shim = try String(contentsOfFile: c.binDir + "/php", encoding: .utf8)
-    #expect(shim == "#!/bin/sh\nexec \"\(c.phpDir)/8.4/php\" \"-c\" \"\(c.phpDir)/8.4/php.ini\" \"$@\"\n")
+    // The -d MySQL socket arguments in between depend on this machine's /tmp.
+    #expect(shim.hasPrefix("#!/bin/sh\nexec \"\(c.phpDir)/8.4/php\" \"-c\" \"\(c.phpDir)/8.4/php.ini\" "))
+    #expect(shim.hasSuffix(" \"$@\"\n"))
     #expect(FileManager.default.isExecutableFile(atPath: c.binDir + "/php84"))
+}
+
+@Test func mysqlSocketDetection() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+    #expect(Corral.mysqlSocket(in: tmp) == nil) // no MySQL
+    for f in ["mysqlx.sock", "mysql-3307.sock", "mysql_3306.sock"] { fm.createFile(atPath: "\(tmp)/\(f)", contents: nil) }
+    #expect(Corral.mysqlSocket(in: tmp) == tmp + "/mysql_3306.sock") // 3306 wins, X protocol ignored
+    fm.createFile(atPath: tmp + "/mysql.sock", contents: nil)
+    #expect(Corral.mysqlSocket(in: tmp) == nil) // PHP's default already works
 }
