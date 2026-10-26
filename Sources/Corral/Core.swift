@@ -116,9 +116,10 @@ final class Corral: @unchecked Sendable {
 
     // MARK: Sites
 
+    /// Folder name -> host label. Keeps dots like Herd and Valet, so "crm.pigment" serves crm.pigment.<tld>.
     static func slug(_ s: String) -> String {
-        let mapped = s.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" }
-        return String(mapped).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let mapped = s.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == ".") ? $0 : "-" }
+        return String(mapped).trimmingCharacters(in: CharacterSet(charactersIn: "-."))
     }
 
     func sites() -> [Site] {

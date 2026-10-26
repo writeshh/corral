@@ -19,6 +19,8 @@ import Testing
 
     let sites = c.sites()
     #expect(sites.map(\.name) == ["api-docs", "blog", "shop"])
+    #expect(Corral.slug("crm.pigment") == "crm.pigment") // same host as Herd and Valet
+    #expect(Corral.slug(".hidden.") == "hidden")
     #expect(sites.first { $0.name == "blog" }?.path == tmp + "/elsewhere")
 
     // PHP resolution: isolated version wins only if installed; otherwise the newest is global.
