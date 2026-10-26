@@ -36,7 +36,7 @@ import Testing
     #expect(blog.docroot == tmp + "/parked/Blog/public")
 
     let conf = c.nginxConf(sites: sites, installed: installed)
-    #expect(conf.contains("server_name shop.internal *.shop.internal;"))
+    #expect(conf.contains("server_name shop.internal *.shop.internal shop.test *.shop.test;"))
     #expect(conf.contains("listen 127.0.0.1:8543 ssl;"))
     #expect(conf.contains("return 301 https://$host$request_uri;"))
     #expect(conf.contains("php8.4.sock"))
@@ -46,11 +46,12 @@ import Testing
     // CA + leaf cert chain verifies, with the wildcard SAN.
     #expect(try c.ensureCA() == true)
     #expect(try c.ensureCA() == false)
-    try c.makeCert("shop.internal")
+    try c.makeCert(["shop.internal", "shop.test"])
     let verify = try c.sh("/usr/bin/openssl", ["verify", "-CAfile", c.caPem, c.certs + "/shop.internal.crt"])
     #expect(verify.contains("OK"))
     let text = try c.sh("/usr/bin/openssl", ["x509", "-noout", "-text", "-in", c.certs + "/shop.internal.crt"])
     #expect(text.contains("DNS:*.shop.internal"))
+    #expect(text.contains("DNS:shop.test") && text.contains("DNS:*.shop.test"))
 
     #expect(try c.installScript().contains("port 53535"))
 }
@@ -146,4 +147,26 @@ import Testing
     #expect(Corral.mysqlSocket(in: tmp) == tmp + "/mysql_3306.sock") // 3306 wins, X protocol ignored
     fm.createFile(atPath: tmp + "/mysql.sock", contents: nil)
     #expect(Corral.mysqlSocket(in: tmp) == nil) // PHP's default already works
+}
+
+@Test func sharingTestWithHerd() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+    try "nameserver 127.0.0.1".write(toFile: tmp + "/herd", atomically: true, encoding: .utf8)
+    try "nameserver 127.0.0.1\nport 53535\n".write(toFile: tmp + "/corral", atomically: true, encoding: .utf8)
+    #expect(!Corral.resolverIsCorral(tmp + "/herd"))   // Herd's file does not count as installed
+    #expect(Corral.resolverIsCorral(tmp + "/corral"))
+    #expect(!Corral.resolverIsCorral(tmp + "/missing"))
+
+    let c = Corral(home: tmp + "/home")
+    #expect(c.tlds == ["internal", "test"])
+    let take = c.takeoverScript(), back = c.handbackScript()
+    #expect(take.contains("cp /etc/resolver/test \"\(Corral.resolverBackup)\""))   // keeps Herd's file
+    #expect(back.contains("mv \"\(Corral.resolverBackup)\" /etc/resolver/test"))   // and restores it
+    #expect(c.uninstallScript().hasPrefix(back))                                // uninstall hands .test back
+    #expect(!c.uninstallScript().contains("rm -f /Library/LaunchDaemons/dev.corral.network.plist /etc/resolver"))
+
+    c.config.tld = "test"
+    #expect(c.tlds == ["test"])
 }

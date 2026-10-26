@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 struct Config: Codable, Equatable {
     var tld = "internal"                 // ICANN-reserved private TLD, so it can't clash with Herd's .test
@@ -149,6 +149,11 @@ final class Corral: @unchecked Sendable {
 
     func host(_ site: Site) -> String { "\(site.name).\(config.tld)" }
 
+    /// Every site also answers <site>.test, so URLs saved under Herd work after `corral takeover`.
+    static let sharedTLD = "test"
+    var tlds: [String] { config.tld == Self.sharedTLD ? [config.tld] : [config.tld, Self.sharedTLD] }
+    func hostnames(_ site: Site) -> [String] { tlds.map { "\(site.name).\($0)" } }
+
     func url(_ site: Site) -> URL {
         URL(string: (config.secured.contains(site.name) ? "https://" : "http://") + host(site))!
     }
@@ -297,7 +302,7 @@ final class Corral: @unchecked Sendable {
 
         """
         for site in sites {
-            let names = "\(host(site)) *.\(host(site))"
+            let names = hostnames(site).map { "\($0) *.\($0)" }.joined(separator: " ")
             let sock = php(for: site, installed).map(self.sock) ?? "\(run)/no-php.sock"
             let body = { (https: Bool) in site.proxy.map(self.proxyBody) ?? self.siteBody(site, sock: sock, https: https) }
             if config.secured.contains(site.name) {
@@ -509,7 +514,7 @@ final class Corral: @unchecked Sendable {
         if !alive(run + "/dnsmasq.pid") {
             try sh(tool("dnsmasq"), [
                 "--conf-file=/dev/null", "--port=\(Self.dnsPort)", "--listen-address=127.0.0.1", "--bind-interfaces",
-                "--no-resolv", "--no-hosts", "--address=/\(config.tld)/\(Self.loopback)", "--pid-file=\(run)/dnsmasq.pid",
+                "--no-resolv", "--no-hosts", "--address=/\(tlds.joined(separator: "/"))/\(Self.loopback)", "--pid-file=\(run)/dnsmasq.pid",
             ])
         }
         let nginx = try tool("nginx")
@@ -566,13 +571,14 @@ final class Corral: @unchecked Sendable {
                                      NSHomeDirectory() + "/Library/Keychains/login.keychain-db", caPem])
     }
 
-    func makeCert(_ host: String) throws {
-        let base = "\(certs)/\(host)"
+    /// One certificate for all of a site's names. Files use the first name.
+    func makeCert(_ hosts: [String]) throws {
+        let host = hosts[0], base = "\(certs)/\(host)"
         try """
         basicConstraints = CA:FALSE
         keyUsage = critical,digitalSignature,keyEncipherment
         extendedKeyUsage = serverAuth
-        subjectAltName = DNS:\(host),DNS:*.\(host)
+        subjectAltName = \(hosts.map { "DNS:\($0),DNS:*.\($0)" }.joined(separator: ","))
         """.write(toFile: base + ".ext", atomically: true, encoding: .utf8)
         try sh("/usr/bin/openssl", ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=\(host)",
                                     "-keyout", base + ".key", "-out", base + ".csr"])
@@ -586,7 +592,7 @@ final class Corral: @unchecked Sendable {
     func setSecure(_ site: Site, _ on: Bool) throws {
         if on {
             if try ensureCA() { try trustCA() }
-            try makeCert(host(site))
+            try makeCert(hostnames(site))
             config.secured.insert(site.name)
         } else {
             config.secured.remove(site.name)
@@ -597,7 +603,51 @@ final class Corral: @unchecked Sendable {
 
     // MARK: One-time system setup (the only part that needs root)
 
-    var isInstalled: Bool { FileManager.default.fileExists(atPath: "/etc/resolver/" + config.tld) }
+    /// True when the resolver file sends the domain to Corral's dnsmasq (and not, for example, to Herd's).
+    static func resolverIsCorral(_ path: String) -> Bool {
+        (try? String(contentsOfFile: path, encoding: .utf8))?.contains("port \(dnsPort)") ?? false
+    }
+
+    var isInstalled: Bool { Self.resolverIsCorral("/etc/resolver/" + config.tld) }
+
+    // MARK: Sharing .test with Herd
+
+    static let resolverBackup = "/Library/Application Support/Corral/herd-resolver-test"
+    var ownsTest: Bool { Self.resolverIsCorral("/etc/resolver/" + Self.sharedTLD) }
+
+    static var herdIsRunning: Bool {
+        NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "de.beyondco.herd" }
+    }
+
+    private static let flushDNS = "dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true"
+
+    /// Points .test at Corral. Keeps Herd's resolver file in a root-owned folder for `handback`.
+    func takeoverScript() -> String {
+        let file = "/etc/resolver/\(Self.sharedTLD)"
+        return """
+        set -e
+        mkdir -p /etc/resolver "\((Self.resolverBackup as NSString).deletingLastPathComponent)"
+        if [ -f \(file) ] && ! grep -q 'port \(Self.dnsPort)' \(file); then cp \(file) "\(Self.resolverBackup)"; fi
+        printf 'nameserver 127.0.0.1\\nport \(Self.dnsPort)\\n' > \(file)
+        \(Self.flushDNS)
+        """
+    }
+
+    /// Gives .test back: restores Herd's resolver file, or removes Corral's if there was none.
+    func handbackScript() -> String {
+        let file = "/etc/resolver/\(Self.sharedTLD)"
+        return """
+        if grep -q 'port \(Self.dnsPort)' \(file) 2>/dev/null; then
+            if [ -f "\(Self.resolverBackup)" ]; then mv "\(Self.resolverBackup)" \(file); else rm -f \(file); fi
+        fi
+        \(Self.flushDNS)
+        """
+    }
+
+    func takeover() throws {
+        if Self.herdIsRunning { throw CorralError("Quit Herd first. Herd takes .test back while it runs.") }
+        try runAsAdmin(takeoverScript())
+    }
 
     func installScript() throws -> String {
         let boot = """
@@ -621,9 +671,11 @@ final class Corral: @unchecked Sendable {
     }
 
     func uninstallScript() -> String {
-        """
+        handbackScript() + """
+
         launchctl bootout system/\(Self.daemonLabel) 2>/dev/null || true
-        rm -f /Library/LaunchDaemons/\(Self.daemonLabel).plist /etc/resolver/\(config.tld)
+        rm -f /Library/LaunchDaemons/\(Self.daemonLabel).plist
+        grep -q 'port \(Self.dnsPort)' /etc/resolver/\(config.tld) 2>/dev/null && rm -f /etc/resolver/\(config.tld)
         /sbin/pfctl -a com.apple/corral -F all 2>/dev/null || true
         /sbin/ifconfig lo0 -alias \(Self.loopback) 2>/dev/null || true
         """

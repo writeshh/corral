@@ -18,6 +18,7 @@ struct Snapshot: Sendable {
     var versions: [String] = []
     var globalPHP: String?
     var installed = true
+    var ownsTest = false
     var home = ""
     var parked: [String] = []
 
@@ -37,6 +38,7 @@ struct Snapshot: Sendable {
         versions = Corral.sortVersions(php.keys)
         globalPHP = c.globalPHP(php)
         installed = c.isInstalled
+        ownsTest = c.ownsTest
         home = c.home
         parked = c.config.parked
     }
@@ -261,6 +263,13 @@ struct Panel: View {
                 .help("Park Folder")
 
             Menu {
+                Toggle("Serve .test Instead of Herd", isOn: Binding(
+                    get: { model.snap.ownsTest },
+                    set: { on in
+                        if on { model.run("Taking over .test") { try $0.takeover() } }
+                        else { model.run("Giving .test back") { try $0.runAsAdmin($0.handbackScript()) } }
+                    }
+                ))
                 Button("Restart Services") { model.run("Restarting") { c in c.stop(); try c.start() } }
                     .disabled(!model.running)
                 Button("Open Config Folder") { NSWorkspace.shared.open(URL(fileURLWithPath: model.snap.home)) }

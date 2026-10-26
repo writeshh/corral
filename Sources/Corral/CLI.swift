@@ -5,6 +5,7 @@ enum CLI {
     Corral: local PHP sites on .<tld>, Herd-style.
 
       install | uninstall          one-time system setup (resolver, loopback alias, pf 80/443 redirect)
+      takeover | handback          send .test to Corral, or give it back to Herd
       start | stop | restart       nginx, dnsmasq, php-fpm
       status                       service state
       park [dir] | forget [dir]    serve every subfolder of dir as <folder>.<tld>
@@ -46,6 +47,13 @@ enum CLI {
                 fallthrough
             case "status":
                 for (name, up) in corral.status() { print("\(up ? "●" : "○") \(name)") }
+                print(".\(Corral.sharedTLD) goes to \(corral.ownsTest ? "Corral" : "Herd (or nothing)")")
+            case "takeover":
+                try corral.takeover()
+                print(".\(Corral.sharedTLD) now goes to Corral. Run `corral handback` before you start Herd again.")
+            case "handback":
+                try corral.runAsAdmin(corral.handbackScript())
+                print(".\(Corral.sharedTLD) goes to Herd again. You can start Herd now.")
             case "stop":
                 corral.stop()
             case "park":
