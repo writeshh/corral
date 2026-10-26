@@ -49,6 +49,14 @@ For WordPress sites, the block also contains the rewrite rules for multisite in 
 The `nginx` value from `.corral.json` goes into the server block of that site.
 After a change, Corral tests the configuration and reloads nginx.
 
+### Proxy sites
+
+A proxy site has a server block with `proxy_pass` and no PHP.
+nginx sends the WebSocket `Upgrade` and `Connection` headers to the development server.
+For a `*.localhost` upstream, nginx connects to `127.0.0.1`.
+nginx sends the original name in the `Host` header and as the TLS server name (SNI).
+Name-based routers such as portless need this name.
+
 ### Bundled binaries
 
 `scripts/build-deps.sh` compiles nginx and dnsmasq from source.

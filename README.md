@@ -69,6 +69,8 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral forget [dir]` | Stop serving the subfolders of `dir`. |
 | `corral link [name]` | Serve the current folder as `<name>.internal`. |
 | `corral unlink [name]` | Remove a linked site. |
+| `corral proxy <name> <url>` | Serve a development server as `<name>.internal`. |
+| `corral unproxy <name>` | Remove a proxy site. |
 | `corral sites` | List all sites with their URL, PHP version, and document root. |
 | `corral secure [site]` | Serve a site over HTTPS. |
 | `corral unsecure [site]` | Serve a site over HTTP. |
@@ -123,6 +125,28 @@ This works for most PHP frameworks.
 Corral finds WordPress when the document root contains `wp-load.php` or `wp-config.php`.
 For WordPress sites, Corral adds the nginx rules for multisite in subdirectories.
 Multisite with subdomains also works, because each site answers `*.<site>.internal`.
+
+## Development servers and portless
+
+A proxy site sends requests for `<name>.internal` to a development server, for example Next.js or Vite.
+WebSocket connections also go through the proxy, so hot reload works.
+You can use `corral secure <name>` to serve a proxy site over HTTPS.
+
+```sh
+corral proxy shop http://127.0.0.1:3000
+```
+
+[portless](https://github.com/vercel-labs/portless) gives each app a name such as `shop.localhost`.
+If Laravel Herd uses ports 80 and 443, portless must use a different port, for example 1355.
+Corral can serve the same app without a port:
+
+```sh
+corral proxy shop https://shop.localhost:1355
+```
+
+Then open `http://shop.internal`.
+For `.localhost` URLs, Corral connects to `127.0.0.1` and sends the original name.
+portless needs the name to select the app.
 
 ## Site settings
 

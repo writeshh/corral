@@ -22,3 +22,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - WordPress detection with nginx rules for multisite in subdirectories.
 - `web/` document root for Craft CMS, Drupal, and Bedrock.
 - `.corral.json` site settings for the document root and extra nginx directives.
+- `corral proxy` and `corral unproxy` for development servers, with WebSocket support. This includes portless apps on `*.localhost`.
+
+### Fixed
+
+- A `config.json` from an older version no longer resets the settings. Corral does not overwrite a `config.json` that is not valid.
