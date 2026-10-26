@@ -99,7 +99,13 @@ final class Corral {
 
     // MARK: PHP
 
-    /// version ("8.5") -> php-fpm path, from Homebrew's opt/php and opt/php@X.Y links.
+    var phpDir: String { home + "/php" }
+    var binDir: String { home + "/bin" }
+
+    // ponytail: add a new minor version here when static-php-cli publishes it.
+    static let phpChoices = ["8.5", "8.4", "8.3", "8.2", "8.1"]
+
+    /// version ("8.5") -> php-fpm path. Corral's own static builds win over Homebrew's opt/php and opt/php@X.Y.
     func phpVersions() -> [String: String] {
         let fm = FileManager.default
         var out: [String: String] = [:]
@@ -111,7 +117,85 @@ final class Corral {
             let v = URL(fileURLWithPath: cellar).lastPathComponent.split(separator: ".").prefix(2).joined(separator: ".")
             out[v] = fpm
         }
+        for v in (try? fm.contentsOfDirectory(atPath: phpDir)) ?? [] where fm.isExecutableFile(atPath: "\(phpDir)/\(v)/php-fpm") {
+            out[v] = "\(phpDir)/\(v)/php-fpm"
+        }
         return out
+    }
+
+    func isManaged(_ fpm: String) -> Bool { fpm.hasPrefix(phpDir + "/") }
+
+    func cliPath(_ fpm: String) -> String {
+        isManaged(fpm) ? (fpm as NSString).deletingLastPathComponent + "/php" : fpm.replacingOccurrences(of: "/sbin/php-fpm", with: "/bin/php")
+    }
+
+    /// Static builds keep php.ini next to the binaries. Homebrew builds use Homebrew's php.ini.
+    func iniArgs(_ fpm: String) -> [String] {
+        isManaged(fpm) ? ["-c", (fpm as NSString).deletingLastPathComponent + "/php.ini"] : []
+    }
+
+    static let defaultPhpIni = """
+    memory_limit = 512M
+    upload_max_filesize = 512M
+    post_max_size = 512M
+    max_execution_time = 120
+    display_errors = On
+    error_reporting = E_ALL
+    date.timezone = UTC
+    ; Static builds have no CA bundle. Use the macOS bundle.
+    curl.cainfo = /etc/ssl/cert.pem
+    openssl.cafile = /etc/ssl/cert.pem
+
+    """
+
+    /// Downloads the newest static PHP build for a minor version from static-php-cli (the "common" extension set).
+    func installPHP(_ minor: String) throws {
+        let fm = FileManager.default
+        #if arch(arm64)
+        let arch = "aarch64"
+        #else
+        let arch = "x86_64"
+        #endif
+        let base = "https://dl.static-php.dev/static-php-cli/common/"
+        let listing = try sh("/usr/bin/curl", ["-fsSL", base + "?format=json"])
+        let regex = try NSRegularExpression(pattern: "php-\(NSRegularExpression.escapedPattern(for: minor))\\.(\\d+)-fpm-macos-\(arch)\\.tar\\.gz")
+        let patches = regex.matches(in: listing, range: NSRange(listing.startIndex..., in: listing))
+            .compactMap { Range($0.range(at: 1), in: listing).flatMap { Int(listing[$0]) } }
+        guard let patch = patches.max() else { throw CorralError("No static PHP \(minor) build for macOS \(arch).") }
+
+        let dir = "\(phpDir)/\(minor)", tmp = dir + ".download"
+        try? fm.removeItem(atPath: tmp)
+        try mkdirs(tmp)
+        for kind in ["fpm", "cli"] {
+            let tarball = "\(tmp)/\(kind).tar.gz"
+            try sh("/usr/bin/curl", ["-fsSL", "\(base)php-\(minor).\(patch)-\(kind)-macos-\(arch).tar.gz", "-o", tarball])
+            try sh("/usr/bin/tar", ["xzf", tarball, "-C", tmp])
+            try fm.removeItem(atPath: tarball)
+        }
+        for bin in ["php", "php-fpm"] { try sh("/usr/bin/codesign", ["--force", "--sign", "-", "\(tmp)/\(bin)"]) }
+        if fm.fileExists(atPath: dir + "/php.ini") {
+            try fm.moveItem(atPath: dir + "/php.ini", toPath: tmp + "/php.ini") // keep the user's edits on update
+        } else {
+            try Self.defaultPhpIni.write(toFile: tmp + "/php.ini", atomically: true, encoding: .utf8)
+        }
+        stopPHP(minor)
+        try? fm.removeItem(atPath: dir)
+        try fm.moveItem(atPath: tmp, toPath: dir)
+        try apply()
+    }
+
+    func uninstallPHP(_ minor: String) throws {
+        guard FileManager.default.fileExists(atPath: "\(phpDir)/\(minor)") else { throw CorralError("PHP \(minor) is not installed by Corral.") }
+        stopPHP(minor)
+        try FileManager.default.removeItem(atPath: "\(phpDir)/\(minor)")
+        if config.php == minor { config.php = nil }
+        try apply()
+    }
+
+    func stopPHP(_ version: String) {
+        let pidFile = "\(run)/php\(version)-fpm.pid"
+        if let pid = readPid(pidFile) { kill(pid, SIGTERM) }
+        for _ in 0..<30 where alive(pidFile) { usleep(100_000) }
     }
 
     static func sortVersions(_ v: some Sequence<String>) -> [String] {
@@ -248,16 +332,38 @@ final class Corral {
         let installed = phpVersions()
         try nginxConf(sites: sites(), installed: installed).write(toFile: conf + "/nginx.conf", atomically: true, encoding: .utf8)
         for v in installed.keys { try fpmConf(v).write(toFile: "\(conf)/php\(v)-fpm.conf", atomically: true, encoding: .utf8) }
+        try writeShims(installed)
+    }
+
+    /// bin/corral, bin/php (global version) and bin/php84 etc. Add bin/ to PATH to use them.
+    func writeShims(_ installed: [String: String]) throws {
+        try? FileManager.default.removeItem(atPath: binDir)
+        try mkdirs(binDir)
+        if let exe = Bundle.main.executablePath {
+            try FileManager.default.createSymbolicLink(atPath: binDir + "/corral", withDestinationPath: exe)
+        }
+        let global = globalPHP(installed)
+        for (v, fpm) in installed {
+            let args = ([cliPath(fpm)] + iniArgs(fpm)).map { "\"\($0)\"" }.joined(separator: " ")
+            for name in ["php" + v.replacingOccurrences(of: ".", with: "")] + (v == global ? ["php"] : []) {
+                let path = "\(binDir)/\(name)"
+                try "#!/bin/sh\nexec \(args) \"$@\"\n".write(toFile: path, atomically: true, encoding: .utf8)
+                chmod(path, 0o755)
+            }
+        }
     }
 
     // MARK: Processes
 
+    /// Order: CORRAL_<NAME> override, the copy inside Corral.app, then Homebrew.
     func tool(_ name: String) throws -> String {
         if let p = ProcessInfo.processInfo.environment["CORRAL_\(name.uppercased())"] { return p }
+        if let bundled = Bundle.main.resourcePath.map({ "\($0)/bin/\(name)" }),
+           FileManager.default.isExecutableFile(atPath: bundled) { return bundled }
         for dir in ["bin", "sbin"] where FileManager.default.isExecutableFile(atPath: "\(brew)/\(dir)/\(name)") {
             return "\(brew)/\(dir)/\(name)"
         }
-        throw CorralError("\(name) not found. Install it with: brew install \(name)")
+        throw CorralError("\(name) not found. Run Corral from Corral.app (build it with ./bundle.sh), or run: brew install \(name)")
     }
 
     private var nginxArgs: [String] { ["-p", home + "/", "-c", conf + "/nginx.conf", "-e", logs + "/nginx-error.log"] }
@@ -278,9 +384,9 @@ final class Corral {
     func start() throws {
         try writeConfigs()
         let installed = phpVersions()
-        if installed.isEmpty { throw CorralError("No Homebrew PHP found. Install it with: brew install php") }
+        if installed.isEmpty { throw CorralError("No PHP found. Install it with: corral php:install \(Self.phpChoices[0])") }
         for v in neededPHP(installed) where !alive("\(run)/php\(v)-fpm.pid") {
-            try sh(installed[v]!, ["--fpm-config", "\(conf)/php\(v)-fpm.conf"])
+            try sh(installed[v]!, ["--fpm-config", "\(conf)/php\(v)-fpm.conf"] + iniArgs(installed[v]!))
         }
         if !alive(run + "/dnsmasq.pid") {
             try sh(tool("dnsmasq"), [

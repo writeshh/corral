@@ -13,7 +13,9 @@ enum CLI {
       secure [site] | unsecure [site]
       use <ver>                    set the global PHP version
       isolate <ver> [site] | unisolate [site]
-      php:list                     installed Homebrew PHP versions
+      php:list                     installed PHP versions
+      php:install <ver>            download a static PHP build, for example 8.4
+      php:uninstall <ver>          remove a PHP version that Corral installed
       open [site]
       trust                        trust the local CA in your login keychain
 
@@ -85,6 +87,13 @@ enum CLI {
                 let installed = corral.phpVersions()
                 let global = corral.globalPHP(installed)
                 for v in Corral.sortVersions(installed.keys) { print("\(v == global ? "*" : " ") \(v)\t\(installed[v]!)") }
+            case "php:install":
+                guard let v = arg1 else { throw CorralError("Usage: corral php:install <\(Corral.phpChoices.joined(separator: "|"))>") }
+                try corral.installPHP(v)
+                print("Installed PHP \(v). Add \"\(corral.binDir)\" to your PATH to use php\(v.replacingOccurrences(of: ".", with: "")).")
+            case "php:uninstall":
+                guard let v = arg1 else { throw CorralError("Usage: corral php:uninstall <version>") }
+                try corral.uninstallPHP(v)
             case "open":
                 NSWorkspace.shared.open(corral.url(try corral.site(named: arg1)))
             case "trust":

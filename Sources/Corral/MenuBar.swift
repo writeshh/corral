@@ -103,6 +103,12 @@ struct MenuContent: View {
         )) {
             ForEach(model.versions, id: \.self) { Text($0).tag($0) }
         }
+        let missing = Corral.phpChoices.filter { !model.versions.contains($0) }
+        if !missing.isEmpty {
+            Menu("Install PHP") {
+                ForEach(missing, id: \.self) { v in Button("PHP \(v)") { model.perform { try corral.installPHP(v) } } }
+            }
+        }
         Button("Park Folder…") { model.park() }
         Divider()
         Button("Open Config Folder") { NSWorkspace.shared.open(URL(fileURLWithPath: corral.home)) }
