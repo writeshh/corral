@@ -108,6 +108,18 @@ Run `corral restart` after a change.
 
 static-php-cli does not publish checksums. Corral uses HTTPS for the download.
 
+## Menu bar app
+
+Click the Corral icon in the menu bar to open the panel. The panel shows:
+
+- The state of nginx, dnsmasq, and each PHP-FPM version, with a Start or Stop button
+- A list of all sites. Click a site to open it in the browser.
+- Site actions: copy the URL, show the folder in Finder, serve over HTTPS, and select the PHP version
+- The global PHP version, and a menu to install more versions
+- Errors and setup steps, directly in the panel
+
+Right-click a site, or hold the pointer over it and click the "..." button, to show the site actions.
+
 ## Document root
 
 Corral selects the document root in this order:

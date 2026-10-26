@@ -24,6 +24,10 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `.corral.json` site settings for the document root and extra nginx directives.
 - `corral proxy` and `corral unproxy` for development servers, with WebSocket support. This includes portless apps on `*.localhost`.
 
+### Changed
+
+- The menu bar app is now a panel with a site list, service status, inline errors, and an empty state. Slow work, such as a PHP download, runs in the background, so the panel does not freeze.
+
 ### Fixed
 
 - A `config.json` from an older version no longer resets the settings. Corral does not overwrite a `config.json` that is not valid.

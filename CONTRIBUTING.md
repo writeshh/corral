@@ -25,6 +25,17 @@ Then delete `.deps/` and run `./bundle.sh` again.
 
 To test without changes to your real configuration, set `CORRAL_HOME` to a short temporary path.
 
+### Command Line Tools only
+
+You can build Corral without Xcode. The Command Line Tools have two limits:
+
+- The Tools do not include the `SwiftUIMacros` plugin. Do not use `@State` or other SwiftUI macros. Use `@StateObject` and `@Published`.
+- `swift test` sometimes fails with "plugin for module 'TestingMacros' not found". The error is not related to your change. Run the build again:
+
+  ```sh
+  swift build --build-tests && swift test --skip-build
+  ```
+
 ## Rules
 
 - Do not add telemetry, analytics, or crash reporting.
