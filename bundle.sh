@@ -1,12 +1,14 @@
 #!/bin/sh
-# Builds Corral.app (menu bar agent, no Dock icon). The same binary is the CLI:
-#   ln -s "$PWD/Corral.app/Contents/MacOS/Corral" /opt/homebrew/bin/corral
+# Builds Corral.app (menu bar agent, no Dock icon) with nginx and dnsmasq inside.
+# The same binary is the CLI. Corral links it as bin/corral in its state folder.
 set -e
 cd "$(dirname "$0")"
+[ -x .deps/bin/nginx ] && [ -x .deps/bin/dnsmasq ] || ./scripts/build-deps.sh
 swift build -c release
 rm -rf Corral.app
-mkdir -p Corral.app/Contents/MacOS
+mkdir -p Corral.app/Contents/MacOS Corral.app/Contents/Resources
 cp .build/release/Corral Corral.app/Contents/MacOS/Corral
+cp -R .deps/bin .deps/licenses Corral.app/Contents/Resources/
 cat > Corral.app/Contents/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -22,5 +24,7 @@ cat > Corral.app/Contents/Info.plist <<'PLIST'
 </dict>
 </plist>
 PLIST
+# Sign nested executables first, then the app.
+codesign --force --sign - Corral.app/Contents/Resources/bin/*
 codesign --force --sign - Corral.app
 echo "Built $(pwd)/Corral.app"
