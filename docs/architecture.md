@@ -26,6 +26,13 @@ The file sends these lookups to dnsmasq on port 53535.
 dnsmasq answers `127.0.0.2` for each `.internal` name, subdomains included.
 dnsmasq runs as your user. A high port does not need root.
 
+dnsmasq also answers `127.0.0.2` for each `.test` name.
+`/etc/resolver/test` decides which tool gets `.test` lookups.
+`corral takeover` copies the Herd version of this file to `/Library/Application Support/Corral/herd-resolver-test`.
+Then it writes the Corral version.
+`corral handback` moves the copy back.
+The backup folder belongs to root.
+
 ### Ports 80 and 443
 
 Ports below 1024 need root on macOS.

@@ -23,6 +23,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `web/` document root for Craft CMS, Drupal, and Bedrock.
 - `.corral.json` site settings for the document root and extra nginx directives.
 - `corral proxy` and `corral unproxy` for development servers, with WebSocket support. This includes portless apps on `*.localhost`.
+- Each site also answers `<site>.test`. `corral takeover` sends `.test` to Corral, and `corral handback` gives it back to Laravel Herd. The menu bar app has the same switch.
 
 ### Changed
 
@@ -30,4 +31,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A Herd resolver file for the same domain no longer counts as a Corral installation.
+- `corral uninstall` removes only resolver files that point to Corral.
+- Sites with `DB_HOST=localhost` find the MySQL socket of DBngin and Herd.
+- Folder names keep their dots, as in Herd and Valet. `crm.pigment` is `crm.pigment.internal`.
 - A `config.json` from an older version no longer resets the settings. Corral does not overwrite a `config.json` that is not valid.

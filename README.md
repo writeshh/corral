@@ -87,6 +87,8 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral status` | Show the state of each service. |
 | `corral trust` | Add the local CA to your login keychain. |
 | `corral install` | Configure DNS and ports 80 and 443. |
+| `corral takeover` | Send `.test` to Corral in place of Laravel Herd. |
+| `corral handback` | Give `.test` back to Laravel Herd. |
 | `corral uninstall` | Remove the system configuration. |
 
 If you do not give a site name, Corral uses the site in the current folder.
@@ -138,6 +140,40 @@ This works for most PHP frameworks.
 Corral finds WordPress when the document root contains `wp-load.php` or `wp-config.php`.
 For WordPress sites, Corral adds the nginx rules for multisite in subdirectories.
 Multisite with subdomains also works, because each site answers `*.<site>.internal`.
+
+## Use Corral next to Laravel Herd
+
+Each site has two names: `<site>.internal` and `<site>.test`.
+The `.internal` names always go to Corral.
+The `.test` names go to Herd, until you run `corral takeover`.
+
+Sites that you moved from Herd often keep their `.test` URL, for example in the WordPress `siteurl` or in `APP_URL` in `.env`.
+These sites redirect to `.test`. To open them with Corral, send `.test` to Corral:
+
+1. Quit Herd. Corral does not take `.test` while Herd runs, because Herd takes it back.
+2. Send `.test` to Corral. macOS asks for your administrator password:
+
+   ```sh
+   corral takeover
+   ```
+
+3. For sites that use `https://`, run `corral secure <site>` one time.
+
+To use Herd again:
+
+1. Give `.test` back to Herd. Corral restores the resolver file of Herd from its backup:
+
+   ```sh
+   corral handback
+   ```
+
+2. Start Herd.
+
+`corral status` shows which tool gets `.test`. The menu bar app has the same switch in the "..." menu.
+`corral uninstall` also gives `.test` back to Herd.
+
+Herd and Corral do not use the same IP addresses or ports, so both can run at the same time.
+Only the `.test` names can go to one tool at a time.
 
 ## Development servers and portless
 
