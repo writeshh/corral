@@ -195,13 +195,14 @@ final class Corral: @unchecked Sendable {
         isManaged(fpm) ? ["-c", (fpm as NSString).deletingLastPathComponent + "/php.ini"] : []
     }
 
+    // Same values as Herd's php.ini, so sites behave the same after a move. output_buffering keeps
+    // early notices (for example PHP 8.4 deprecations) from breaking redirects and cookies.
     static let defaultPhpIni = """
-    memory_limit = 512M
+    memory_limit = 1024M
     upload_max_filesize = 512M
     post_max_size = 512M
-    max_execution_time = 120
-    display_errors = On
-    error_reporting = E_ALL
+    max_execution_time = 600
+    output_buffering = 4096
     date.timezone = UTC
     ; Static builds have no CA bundle. Use the macOS bundle.
     curl.cainfo = /etc/ssl/cert.pem

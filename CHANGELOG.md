@@ -34,6 +34,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The default `php.ini` for Corral's PHP builds uses the values of Laravel Herd: `memory_limit` 1024M, `max_execution_time` 600, and `output_buffering` 4096. Before, early deprecation notices could break redirects and hide the real HTTP status.
 - A Herd resolver file for the same domain no longer counts as a Corral installation.
 - `corral uninstall` removes only resolver files that point to Corral.
 - Sites with `DB_HOST=localhost` find the MySQL socket of DBngin and Herd.
