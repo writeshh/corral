@@ -340,6 +340,7 @@ struct Panel: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     @AppStorage("hideHerdMove") private var hideHerdMove = false
+    @AppStorage("collapsedGroups") private var collapsedGroups = "" // group keys, one per line
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var rows: [Snapshot.Row] {
@@ -448,13 +449,13 @@ struct Panel: View {
             VStack(spacing: 0) {
                 if model.snap.rows.count > 8 { filterField }
                 ScrollView {
-                    LazyVStack(spacing: 2, pinnedViews: .sectionHeaders) {
+                    // No pinned section headers: they move the rows by fractions of a pixel, and the text blurs.
+                    LazyVStack(spacing: 2) {
                         let groups = self.groups
                         ForEach(groups, id: \.key) { group in
-                            Section {
+                            if groups.count > 1 { groupHeader(group) }
+                            if groups.count == 1 || !isCollapsed(group.key) {
                                 ForEach(group.rows) { row in SiteRow(row: row, model: model) }
-                            } header: {
-                                if groups.count > 1 { groupHeader(group) }
                             }
                         }
                     }
@@ -480,17 +481,38 @@ struct Panel: View {
         }
     }
 
+    /// A filter shows every group, so a match never hides in a collapsed one.
+    private func isCollapsed(_ key: String) -> Bool {
+        model.filter.isEmpty && collapsedGroups.split(separator: "\n").contains { $0 == key }
+    }
+
+    private func toggle(_ key: String) {
+        var keys = Set(collapsedGroups.split(separator: "\n").map(String.init))
+        if keys.remove(key) == nil { keys.insert(key) }
+        collapsedGroups = keys.sorted().joined(separator: "\n")
+    }
+
     private func groupHeader(_ group: (key: String, title: String, rows: [Snapshot.Row])) -> some View {
-        HStack {
-            Text(group.title).font(.caption.weight(.semibold))
-            Spacer()
-            Text(String(group.rows.count)).font(.caption.monospacedDigit())
+        let collapsed = isCollapsed(group.key)
+        return Button { withAnimation(reduceMotion ? nil : .spring(duration: 0.25, bounce: 0)) { toggle(group.key) } } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .rotationEffect(.degrees(collapsed ? 0 : 90))
+                Text(group.title).font(.caption.weight(.semibold))
+                Spacer()
+                Text(String(group.rows.count)).font(.caption.monospacedDigit())
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .contentShape(.rect)
         }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-        .background(.bar)
+        .buttonStyle(.plain)
+        .disabled(!model.filter.isEmpty)
+        .accessibilityLabel("\(group.title), \(group.rows.count) sites")
+        .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
         .help(group.key.hasPrefix("/") ? (group.key as NSString).abbreviatingWithTildeInPath : group.title)
     }
 
