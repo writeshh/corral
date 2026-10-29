@@ -212,6 +212,34 @@ struct LogsView: View {
     @ObservedObject var model: Model
     @StateObject private var log = LogState()
 
+    static let errors = [".ERROR:", ".CRITICAL:", ".ALERT:", ".EMERGENCY:", "[error]", "[crit]", "[alert]", "[emerg]", "PHP Fatal error", "PHP Parse error"]
+    static let warnings = [".WARNING:", "[warn]", "PHP Warning", "PHP Deprecated"]
+
+    /// Colours each line by level for Laravel ("local.ERROR:"), nginx ("[error]") and PHP ("PHP Warning:") logs.
+    /// Timestamps and stack frames are dimmed, so the messages stand out.
+    static func highlight(_ text: String) -> AttributedString {
+        var out = AttributedString()
+        for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            var piece = AttributedString((i == 0 ? "" : "\n") + line)
+            let body = piece.characters.index(piece.startIndex, offsetBy: i == 0 ? 0 : 1)
+            if line.hasPrefix("#") || line.hasPrefix("[stacktrace]") {
+                piece.foregroundColor = .secondary
+            } else if errors.contains(where: line.contains) {
+                piece.foregroundColor = .red
+            } else if warnings.contains(where: line.contains) {
+                piece.foregroundColor = .orange
+            }
+            // "[2026-10-29 08:00:00]" (Laravel) or "2026/10/29 08:00:00" (nginx)
+            let stamp = line.hasPrefix("[") ? line.firstIndex(of: "]").map { line.distance(from: line.startIndex, to: $0) + 1 }
+                : line.count >= 19 && line.dropFirst(4).first == "/" ? 19 : nil
+            if let stamp, stamp <= 40 {
+                piece[body..<piece.characters.index(body, offsetBy: stamp)].foregroundColor = .secondary
+            }
+            out += piece
+        }
+        return out
+    }
+
     private var files: [String] {
         let corral = Corral()
         return corral.logFiles(model.snap.rows.first { $0.site.name == log.site }?.site)
@@ -240,7 +268,7 @@ struct LogsView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        Text(log.text)
+                        Text(Self.highlight(log.text))
                             .font(.system(.callout, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)

@@ -423,6 +423,10 @@ import Testing
                            source: "", request: "")
     #expect(String(dump.styled.characters) == "array:1 [\n  0 => hi\n]")
     #expect(dump.styled.runs.compactMap(\.foregroundColor) == [.cyan, .blue, .green])
+
+    let log = LogsView.highlight("[2026-10-29 08:00:00] local.ERROR: boom\n#0 /app/x.php(12): f()\n2026/10/29 08:00:02 [warn] slow")
+    #expect(String(log.characters).hasPrefix("[2026-10-29 08:00:00] local.ERROR: boom"))
+    #expect(log.runs.compactMap(\.foregroundColor) == [.secondary, .red, .secondary, .orange, .secondary, .orange]) // a line's newline takes its colour
 }
 
 @Test func mailHeadersAndEnv() throws {
