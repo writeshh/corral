@@ -1,0 +1,67 @@
+name: Bug report
+description: Tell us about a problem in Corral.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Describe the problem. Include the full error text.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `corral park ~/Sites`.
+        2. Open http://blog.test.
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `corral status`
+      render: text
+  - type: input
+    id: corral-version
+    attributes:
+      label: Corral version
+      description: The Settings window shows the version. Write the commit SHA if you build from source.
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "macOS 15.1"
+    validations:
+      required: true
+  - type: input
+    id: php-version
+    attributes:
+      label: PHP version
+      description: Write the output of `php -v`, if the problem is related to PHP.
+  - type: dropdown
+    id: herd
+    attributes:
+      label: Is Laravel Herd installed?
+      options:
+        - "No"
+        - Yes, and it runs next to Corral
+        - Yes, but it does not run
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Copy the related lines from the Insights window. Remove secrets before you paste.
+      render: text
