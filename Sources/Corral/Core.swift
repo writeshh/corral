@@ -9,6 +9,7 @@ struct Config: Codable, Equatable {
     var secured: Set<String> = []
     var isolated: [String: String] = [:] // site name -> PHP version
     var proxies: [String: String] = [:]  // site name -> upstream URL
+    var fpm: [String: FpmPool] = [:]     // PHP version -> pool settings, when not the defaults
 
     init() {}
 
@@ -25,7 +26,16 @@ struct Config: Codable, Equatable {
         secured = try c.decodeIfPresent(Set<String>.self, forKey: .secured) ?? d.secured
         isolated = try c.decodeIfPresent([String: String].self, forKey: .isolated) ?? d.isolated
         proxies = try c.decodeIfPresent([String: String].self, forKey: .proxies) ?? d.proxies
+        fpm = try c.decodeIfPresent([String: FpmPool].self, forKey: .fpm) ?? d.fpm
     }
+}
+
+/// PHP-FPM process settings for one PHP version.
+struct FpmPool: Codable, Equatable, Sendable {
+    var pm = "dynamic"                    // dynamic, ondemand or static
+    var maxChildren = 5
+    var requestTerminateTimeout = 0       // seconds, 0 = no limit
+    var slowlogTimeout = 0                // seconds, 0 = no slow log
 }
 
 /// Optional `.corral.json` in a site folder.
@@ -33,6 +43,7 @@ struct SiteOverrides: Codable, Equatable {
     var root: String?   // document root, relative to the site folder
     var nginx: String?  // extra directives inside the site's server block
     var domains: [String]? // extra host names, for example ["shop.local"]
+    var php: [String: String]? // php.ini values for this site only, for example ["memory_limit": "2048M"]
 }
 
 struct Site: Identifiable, Equatable {
@@ -310,6 +321,84 @@ final class Corral: @unchecked Sendable {
 
     func sock(_ version: String) -> String { "\(run)/php\(version).sock" }
 
+    /// A site with its own php.ini values gets its own FPM pool. PHP_VALUE from nginx would stay
+    /// set in the worker and leak into the next request of another site.
+    /// The socket name is a hash of the site name: macOS limits socket paths to 104 bytes.
+    func sock(_ version: String, for site: Site) -> String {
+        guard site.overrides.php?.isEmpty == false else { return sock(version) }
+        let hash = site.name.utf8.reduce(UInt32(5381)) { $0 &* 33 &+ UInt32($1) } // djb2: stable between runs
+        return "\(run)/php\(version)-\(String(hash, radix: 16)).sock"
+    }
+
+    // MARK: PHP settings
+
+    /// The value that PHP uses: the last line that sets the key.
+    static func iniValue(_ ini: String, _ key: String) -> String? {
+        for line in ini.components(separatedBy: "\n").reversed() {
+            let parts = line.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces) == key else { continue }
+            return parts[1].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        }
+        return nil
+    }
+
+    /// Changes the line that PHP uses for the key, or adds one. Comments and other lines stay as they are.
+    static func setIni(_ ini: String, _ key: String, _ value: String) -> String {
+        var lines = ini.components(separatedBy: "\n")
+        let line = "\(key) = \(value)"
+        if let i = lines.lastIndex(where: { $0.contains("=") && $0.split(separator: "=", maxSplits: 1)[0].trimmingCharacters(in: .whitespaces) == key }) {
+            lines[i] = line
+        } else if lines.last == "" {
+            lines.insert(line, at: lines.count - 1)
+        } else {
+            lines.append(line)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// PHP accepts a bad php.ini with exit code 0 and prints warnings. Any output is an error.
+    func checkIni(_ ini: String, cli: String) throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-\(UUID().uuidString).ini").path
+        try ini.write(toFile: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let out = try sh(cli, ["-c", tmp, "-d", "display_startup_errors=1", "-d", "error_reporting=-1", "-r", ""])
+            .replacingOccurrences(of: tmp, with: "php.ini").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !out.isEmpty { throw CorralError("php.ini is not valid. Nothing was changed. \(out)") }
+    }
+
+    /// Writes php.ini values and the FPM pool of one version, after PHP accepts both. Then reloads php-fpm.
+    func savePHPSettings(_ version: String, ini values: [String: String], pool: FpmPool) throws {
+        guard let fpm = phpVersions()[version] else { throw CorralError("PHP \(version) is not installed.") }
+        let path = iniPath(version, fpm)
+        let old = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        let ini = values.sorted { $0.key < $1.key }.reduce(old) { Self.iniValue($0, $1.key) == $1.value ? $0 : Self.setIni($0, $1.key, $1.value) }
+        try checkIni(ini, cli: cliPath(fpm))
+
+        let previous = config.fpm[version]
+        config.fpm[version] = pool == FpmPool() ? nil : pool
+        let tmp = "\(conf)/php\(version)-fpm.test.conf"
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        do {
+            for d in [conf, logs] { try mkdirs(d) } // php-fpm -t opens the error log
+            let installed = phpVersions()
+            try fpmConf(version, sites: sites().filter { php(for: $0, installed) == version }).write(toFile: tmp, atomically: true, encoding: .utf8)
+            try sh(fpm, ["-t", "--fpm-config", tmp] + iniArgs(fpm))
+        } catch {
+            config.fpm[version] = previous
+            throw CorralError("The PHP-FPM settings are not valid. Nothing was changed. \(error.localizedDescription)")
+        }
+
+        if ini != old { try ini.write(toFile: path, atomically: true, encoding: .utf8) }
+        try save()
+        if !(try writeConfigs()).contains(version) { reloadPHP(version) } // a changed pool reloads already
+    }
+
+    /// Graceful reload: php-fpm finishes the running requests, then reads php.ini and its pool again.
+    func reloadPHP(_ version: String) {
+        let pidFile = "\(run)/php\(version)-fpm.pid"
+        if alive(pidFile), let pid = readPid(pidFile) { kill(pid, SIGUSR2) }
+    }
+
     // MARK: Config rendering
 
     func nginxConf(sites: [Site], installed: [String: String]) -> String {
@@ -340,7 +429,7 @@ final class Corral: @unchecked Sendable {
         """
         for site in sites {
             let names = hostnames(site).map { "\($0) *.\($0)" }.joined(separator: " ")
-            let sock = php(for: site, installed).map(self.sock) ?? "\(run)/no-php.sock"
+            let sock = php(for: site, installed).map { self.sock($0, for: site) } ?? "\(run)/no-php.sock"
             let body = { (https: Bool) in site.proxy.map(self.proxyBody) ?? self.siteBody(site, sock: sock, https: https) }
             if config.secured.contains(site.name) {
                 out += """
@@ -461,9 +550,20 @@ final class Corral: @unchecked Sendable {
         Self.mysqlSocket().map { [("mysqli.default_socket", $0), ("pdo_mysql.default_socket", $0)] } ?? []
     }
 
-    func fpmConf(_ version: String) -> String {
-        let overrides = phpOverrides().map { "php_value[\($0.0)] = \"\($0.1)\"\n" }.joined()
-        return """
+    /// One pool for the version, plus one small pool for each of its sites with own php.ini values.
+    func fpmConf(_ version: String, sites: [Site] = []) -> String {
+        let values = { (extra: [String: String]) in
+            (self.phpOverrides() + extra.sorted { $0.key < $1.key }).map { "php_value[\($0.0)] = \"\($0.1)\"\n" }.joined()
+        }
+        let pool = config.fpm[version] ?? FpmPool()
+        let pm = switch pool.pm {
+        case "static": ""
+        case "ondemand": "pm.process_idle_timeout = 10s"
+        default: "pm.start_servers = \(min(2, pool.maxChildren))\npm.min_spare_servers = 1\npm.max_spare_servers = \(min(3, pool.maxChildren))"
+        }
+        let limits = (pool.requestTerminateTimeout > 0 ? "request_terminate_timeout = \(pool.requestTerminateTimeout)s\n" : "")
+            + (pool.slowlogTimeout > 0 ? "request_slowlog_timeout = \(pool.slowlogTimeout)s\nslowlog = \"\(logs)/php\(version)-slow.log\"\n" : "")
+        var out = """
         [global]
         pid = "\(run)/php\(version)-fpm.pid"
         error_log = "\(logs)/php\(version)-fpm.log"
@@ -472,17 +572,31 @@ final class Corral: @unchecked Sendable {
         [corral]
         listen = "\(sock(version))"
         listen.mode = 0600
-        pm = dynamic
-        pm.max_children = 5
-        pm.start_servers = 2
-        pm.min_spare_servers = 1
-        pm.max_spare_servers = 3
+        pm = \(pool.pm)
+        pm.max_children = \(pool.maxChildren)
+        \(pm)
         catch_workers_output = yes
-        \(overrides)
+        \(limits)\(values([:]))
         """
+        for site in sites where site.overrides.php?.isEmpty == false {
+            out += """
+
+            [site-\(site.name)]
+            listen = "\(sock(version, for: site))"
+            listen.mode = 0600
+            pm = ondemand
+            pm.max_children = \(pool.maxChildren)
+            pm.process_idle_timeout = 10s
+            catch_workers_output = yes
+            \(limits)\(values(site.overrides.php ?? [:]))
+            """
+        }
+        return out
     }
 
-    func writeConfigs() throws {
+    /// Returns the PHP versions whose FPM configuration changed. A running php-fpm of those reloads.
+    @discardableResult
+    func writeConfigs() throws -> Set<String> {
         for d in [conf, logs, certs, run + "/tmp"] { try mkdirs(d) }
         let installed = phpVersions()
         let sites = sites()
@@ -490,8 +604,16 @@ final class Corral: @unchecked Sendable {
             throw CorralError("Invalid \(bad.path)/.corral.json: \(bad.overridesError!)")
         }
         try nginxConf(sites: sites, installed: installed).write(toFile: conf + "/nginx.conf", atomically: true, encoding: .utf8)
-        for v in installed.keys { try fpmConf(v).write(toFile: "\(conf)/php\(v)-fpm.conf", atomically: true, encoding: .utf8) }
+        var changed = Set<String>()
+        for v in installed.keys {
+            let file = "\(conf)/php\(v)-fpm.conf", text = fpmConf(v, sites: sites.filter { php(for: $0, installed) == v })
+            guard (try? String(contentsOfFile: file, encoding: .utf8)) != text else { continue }
+            try text.write(toFile: file, atomically: true, encoding: .utf8)
+            reloadPHP(v)
+            changed.insert(v)
+        }
         try writeShims(installed)
+        return changed
     }
 
     /// bin/corral, bin/php (global version) and bin/php84 etc. Add bin/ to PATH to use them.

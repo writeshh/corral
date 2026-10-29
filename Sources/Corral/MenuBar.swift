@@ -27,6 +27,8 @@ struct Snapshot: Sendable {
     var certs: [(host: String, expires: Date?)] = []
     var managed: Set<String> = []          // PHP versions that Corral installed
     var iniPaths: [String: String] = [:]   // PHP version -> php.ini
+    var ini: [String: [String: String]] = [:] // PHP version -> values of PHPSettings.keys
+    var pools: [String: FpmPool] = [:]
     var loginItem = SMAppService.Status.notRegistered
     var tld = Config().tld
     var aliases: [String] = []
@@ -60,6 +62,11 @@ struct Snapshot: Sendable {
         certs = sites.filter { c.config.secured.contains($0.name) }.map { (host: c.host($0), expires: c.certExpiry(c.certPath($0))) }
         managed = Set(php.filter { c.isManaged($0.value) }.keys)
         iniPaths = Dictionary(uniqueKeysWithValues: php.map { ($0.key, c.iniPath($0.key, $0.value)) })
+        for (v, path) in iniPaths {
+            let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+            ini[v] = Dictionary(uniqueKeysWithValues: PHPSettings.keys.compactMap { k in Corral.iniValue(text, k).map { (k, $0) } })
+            pools[v] = c.config.fpm[v] ?? FpmPool()
+        }
         loginItem = SMAppService.mainApp.status
     }
 }

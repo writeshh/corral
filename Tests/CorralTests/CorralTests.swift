@@ -313,3 +313,52 @@ import Testing
     let text = try c.sh("/usr/bin/openssl", ["x509", "-noout", "-text", "-in", c.certPath(shop)])
     #expect(text.contains("DNS:*.shop.dev") && text.contains("DNS:shop.local"))
 }
+
+@Test func phpSettings() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let fm = FileManager.default
+
+    let ini = "; memory_limit = 1M\nmemory_limit = 128M\nmemory_limit=256M\ndate.timezone = \"UTC\"\n"
+    #expect(Corral.iniValue(ini, "memory_limit") == "256M")       // the last line wins, comments do not count
+    #expect(Corral.iniValue(ini, "date.timezone") == "UTC")
+    #expect(Corral.iniValue(ini, "max_input_vars") == nil)
+    let changed = Corral.setIni(Corral.setIni(ini, "memory_limit", "-1"), "max_input_vars", "5000")
+    #expect(changed == "; memory_limit = 1M\nmemory_limit = 128M\nmemory_limit = -1\ndate.timezone = \"UTC\"\nmax_input_vars = 5000\n")
+
+    // Fake PHP: the CLI complains about "bad" values, php-fpm -t accepts everything.
+    let c = Corral(home: tmp + "/home")
+    try c.mkdirs(c.phpDir + "/8.4")
+    try "#!/bin/sh\ngrep -q bad \"$2\" && echo 'Warning: Invalid quantity'\nexit 0\n".write(toFile: c.phpDir + "/8.4/php", atomically: true, encoding: .utf8)
+    try "#!/bin/sh\nexit 0\n".write(toFile: c.phpDir + "/8.4/php-fpm", atomically: true, encoding: .utf8)
+    for bin in ["php", "php-fpm"] { chmod("\(c.phpDir)/8.4/\(bin)", 0o755) }
+    try ini.write(toFile: c.phpDir + "/8.4/php.ini", atomically: true, encoding: .utf8)
+
+    #expect(throws: CorralError.self) { try c.savePHPSettings("8.4", ini: ["memory_limit": "bad"], pool: FpmPool()) }
+    #expect(try String(contentsOfFile: c.phpDir + "/8.4/php.ini", encoding: .utf8) == ini) // nothing changed
+
+    let pool = FpmPool(pm: "ondemand", maxChildren: 8, requestTerminateTimeout: 60, slowlogTimeout: 5)
+    try c.savePHPSettings("8.4", ini: ["memory_limit": "512M", "date.timezone": "UTC"], pool: pool)
+    #expect(Corral.iniValue(try String(contentsOfFile: c.phpDir + "/8.4/php.ini", encoding: .utf8), "memory_limit") == "512M")
+    #expect(c.config.fpm["8.4"] == pool)
+    let conf = try String(contentsOfFile: c.conf + "/php8.4-fpm.conf", encoding: .utf8)
+    #expect(conf.contains("pm = ondemand\npm.max_children = 8\npm.process_idle_timeout = 10s\n"))
+    #expect(conf.contains("request_terminate_timeout = 60s\nrequest_slowlog_timeout = 5s\n"))
+    try c.savePHPSettings("8.4", ini: [:], pool: FpmPool())
+    #expect(c.config.fpm.isEmpty)                                  // defaults are not stored
+
+    // A site with its own php.ini values gets its own pool and socket.
+    try fm.createDirectory(atPath: tmp + "/sites/big", withIntermediateDirectories: true)
+    fm.createFile(atPath: tmp + "/sites/big/.corral.json", contents: Data(#"{"php": {"memory_limit": "2048M"}}"#.utf8))
+    try fm.createDirectory(atPath: tmp + "/sites/small", withIntermediateDirectories: true)
+    c.config.parked = [tmp + "/sites"]
+    let sites = c.sites()
+    let fpm = c.fpmConf("8.4", sites: sites)
+    let bigSock = c.sock("8.4", for: sites[0])
+    #expect(bigSock != c.sock("8.4") && bigSock == c.sock("8.4", for: sites[0]))
+    #expect(fpm.contains("[site-big]\nlisten = \"\(bigSock)\""))
+    #expect(fpm.contains("php_value[memory_limit] = \"2048M\""))
+    #expect(!fpm.contains("[site-small]"))
+    let nginx = c.nginxConf(sites: sites, installed: ["8.4": "/x"])
+    #expect(nginx.contains("unix:\(bigSock)") && nginx.contains("unix:\(c.run)/php8.4.sock"))
+}

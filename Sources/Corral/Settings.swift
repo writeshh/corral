@@ -123,6 +123,7 @@ final class DomainDraft: ObservableObject {
 
 struct PHPTab: View {
     @ObservedObject var model: Model
+    @StateObject private var settings = PHPSettings()
 
     var body: some View {
         Form {
@@ -146,6 +147,12 @@ struct PHPTab: View {
                         Text(managed ? "Corral build" : "Homebrew")
                     }
                 }
+                Picker("Settings for", selection: Binding(get: { settings.version ?? "" }, set: { settings.load($0, model.snap) })) {
+                    ForEach(model.snap.versions.reversed(), id: \.self) { Text("PHP \($0)").tag($0) }
+                }
+            }
+            if let version = settings.version, model.snap.versions.contains(version) {
+                PHPSettingsSections(model: model, settings: settings, version: version)
             }
             Section {
                 Picker("Global version", selection: Binding(
@@ -168,6 +175,94 @@ struct PHPTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { if settings.version == nil, let v = model.snap.globalPHP { settings.load(v, model.snap) } }
+    }
+}
+
+/// Field values for one PHP version, loaded from its php.ini and FPM pool.
+@MainActor
+final class PHPSettings: ObservableObject {
+    /// php.ini keys with a field. upload_max_filesize also sets post_max_size.
+    nonisolated static let keys = ["memory_limit", "upload_max_filesize", "max_execution_time", "max_input_vars", "display_errors",
+                                   "error_reporting", "date.timezone", "opcache.enable", "output_buffering"]
+
+    @Published var version: String?
+    @Published var ini: [String: String] = [:]
+    @Published var pool = FpmPool()
+
+    func load(_ version: String, _ snap: Snapshot) {
+        self.version = version
+        ini = snap.ini[version] ?? [:]
+        pool = snap.pools[version] ?? FpmPool()
+    }
+
+    func binding(_ key: String) -> Binding<String> {
+        Binding(get: { self.ini[key] ?? "" }, set: { self.ini[key] = $0 })
+    }
+
+    /// php.ini accepts On, 1, true and yes.
+    func flag(_ key: String) -> Binding<Bool> {
+        Binding(get: { ["on", "1", "true", "yes", "stdout", "stderr"].contains(self.ini[key]?.lowercased() ?? "") },
+                set: { self.ini[key] = $0 ? "On" : "Off" })
+    }
+
+    func number(_ path: WritableKeyPath<FpmPool, Int>) -> Binding<String> {
+        Binding(get: { String(self.pool[keyPath: path]) }, set: { self.pool[keyPath: path] = Int($0) ?? self.pool[keyPath: path] })
+    }
+}
+
+struct PHPSettingsSections: View {
+    @ObservedObject var model: Model
+    @ObservedObject var settings: PHPSettings
+    let version: String
+
+    var body: some View {
+        Section {
+            TextField("Memory limit", text: settings.binding("memory_limit"), prompt: Text("1024M, or -1 for no limit"))
+            TextField("Maximum upload size", text: settings.binding("upload_max_filesize"), prompt: Text("512M"))
+            TextField("Maximum execution time (seconds)", text: settings.binding("max_execution_time"), prompt: Text("600"))
+            TextField("Maximum input variables", text: settings.binding("max_input_vars"), prompt: Text("1000"))
+            Toggle("Display errors", isOn: settings.flag("display_errors"))
+            TextField("Error reporting", text: settings.binding("error_reporting"), prompt: Text("E_ALL"))
+            TextField("Time zone", text: settings.binding("date.timezone"), prompt: Text("UTC"))
+            Toggle("OPcache", isOn: settings.flag("opcache.enable"))
+            TextField("Output buffering (bytes)", text: settings.binding("output_buffering"), prompt: Text("4096"))
+        } header: {
+            Text("PHP \(version) settings")
+        }
+        Section {
+            Picker("Process manager", selection: $settings.pool.pm) {
+                Text("Dynamic").tag("dynamic")
+                Text("On demand").tag("ondemand")
+                Text("Static").tag("static")
+            }
+            TextField("Maximum processes", text: settings.number(\.maxChildren))
+            TextField("Request timeout (seconds, 0 = none)", text: settings.number(\.requestTerminateTimeout))
+            TextField("Slow log after (seconds, 0 = off)", text: settings.number(\.slowlogTimeout))
+            LabeledContent("") {
+                HStack {
+                    Button("Revert") { settings.load(version, model.snap) }
+                    Button("Apply", action: apply).keyboardShortcut(.defaultAction)
+                }
+                .disabled(model.busy != nil || (settings.ini == model.snap.ini[version] ?? [:] && settings.pool == model.snap.pools[version]))
+            }
+        } header: {
+            Text("PHP-FPM")
+        } footer: {
+            Text("Corral checks the values with PHP before it saves them, then reloads PHP \(version). A site can set its own values with \"php\" in .corral.json.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func apply() {
+        var values = settings.ini.filter { !$0.value.isEmpty }
+        if let upload = values["upload_max_filesize"] { values["post_max_size"] = upload } // a smaller post_max_size would cap uploads
+        if let tz = values["date.timezone"], TimeZone(identifier: tz) == nil {
+            model.error = "\(tz) is not a time zone. Use a name such as Europe/Stockholm."
+            return
+        }
+        let (version, pool, ini) = (version, settings.pool, values)
+        model.run("Saving PHP \(version) settings") { try $0.savePHPSettings(version, ini: ini, pool: pool) }
     }
 }
 
