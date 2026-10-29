@@ -40,11 +40,13 @@ enum CLI {
             switch args[0] {
             case "install":
                 try corral.install()
+                if try corral.addToPath() { print("Put Corral's bin folder first in PATH in ~/.zshrc. Open a new terminal.") }
                 let names = corral.dnsNames(corral.sites()).map { "*.\($0)" }.joined(separator: ", ")
                 print("Installed. \(names) -> \(Corral.loopback), ports 80/443 -> \(Corral.httpPort)/\(Corral.httpsPort).")
             case "uninstall":
                 corral.stop()
                 try corral.runAsAdmin(corral.uninstallScript())
+                if try corral.removeFromPath() { print("Removed Corral's PATH line from ~/.zshrc.") }
                 print("System changes removed. Config left in \(corral.home).")
             case "start", "restart":
                 if args[0] == "restart" { corral.stop() }

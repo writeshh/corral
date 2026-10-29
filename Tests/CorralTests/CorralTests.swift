@@ -450,3 +450,18 @@ import Testing
     #expect(try String(contentsOfFile: tmp + "/shop/.env", encoding: .utf8)
         == "APP_NAME=Shop\nMAIL_MAILER=smtp\nMAIL_HOST=127.0.0.1\nMAIL_PASSWORD=null\nMAIL_PORT=2525\nMAIL_USERNAME=shop\nQUEUE=sync\n")
 }
+
+@Test func zshrcPathLine() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let c = Corral(home: tmp + "/home"), zshrc = tmp + "/.zshrc"
+    let original = "export PATH=\"$PATH:\(c.binDir)\"\nexport PATH=\"/opt/x:\(c.binDir):$PATH\"\nalias ll=ls\n"
+    try original.write(toFile: zshrc, atomically: true, encoding: .utf8)
+    #expect(try c.addToPath(zshrc))                              // the old line goes, the mixed line stays
+    #expect(try String(contentsOfFile: zshrc, encoding: .utf8)
+        == "export PATH=\"/opt/x:\(c.binDir):$PATH\"\nalias ll=ls\n\n\(Corral.pathComment)\nexport PATH=\"\(c.binDir):$PATH\"\n")
+    #expect(try String(contentsOfFile: zshrc + ".corral.bak", encoding: .utf8) == original)
+    #expect(try !c.addToPath(zshrc))                             // already last
+    #expect(try c.removeFromPath(zshrc))
+    #expect(try String(contentsOfFile: zshrc, encoding: .utf8) == "export PATH=\"/opt/x:\(c.binDir):$PATH\"\nalias ll=ls\n")
+}

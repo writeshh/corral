@@ -41,12 +41,14 @@ Corral connects to the internet only when you install a PHP version.
    ./Corral.app/Contents/MacOS/Corral php:install 8.5
    ```
 
-3. Add the commands to your path. Add this line to `~/.zshrc` after any Herd or Homebrew lines, then open a new terminal.
-   Corral's `bin` folder must come first, so `php` runs Corral's build:
+3. Open a new terminal. Corral adds this line to the end of `~/.zshrc` when it starts:
 
    ```sh
    export PATH="$HOME/Library/Application Support/Corral/bin:$PATH"
    ```
+
+   The line comes after the Herd and Homebrew lines, so `php` runs Corral's build.
+   Corral moves an older Corral line to the end and keeps the first original file as `~/.zshrc.corral.bak`.
 
 4. Configure macOS networking. Corral asks for your administrator password one time:
 
@@ -308,7 +310,7 @@ These environment variables change the defaults:
 2. Remove the local CA from the login keychain. Use the Keychain Access app and search for "Corral Local CA".
 3. Delete `~/Library/Application Support/Corral`.
 4. Delete `Corral.app`.
-5. Remove the Corral line from `~/.zshrc`.
+5. `corral uninstall` removes the Corral line from `~/.zshrc`. Remove it yourself if you skip that step.
 
 ## Limitations
 

@@ -1243,6 +1243,56 @@ final class Corral: @unchecked Sendable {
                     text: json["text"] as? String ?? "", source: json["source"] as? String ?? "", request: json["request"] as? String ?? "")
     }
 
+    static let pathComment = "# Added by Corral: its bin folder comes first, so php runs Corral's PHP."
+
+    /// The ~/.zshrc line that puts bin/ first in PATH.
+    var pathLine: String {
+        let home = NSHomeDirectory()
+        return "export PATH=\"\(binDir.hasPrefix(home + "/") ? "$HOME" + binDir.dropFirst(home.count) : binDir):$PATH\""
+    }
+
+    /// The lines of a shell profile without Corral's PATH lines and without trailing blank lines.
+    /// A Corral line adds only bin/, before or after $PATH. A line that also adds other folders stays.
+    func withoutPathLines(_ profile: String) -> [String] {
+        let home = NSHomeDirectory()
+        let forms = [binDir] + (binDir.hasPrefix(home + "/") ? ["$HOME" + binDir.dropFirst(home.count), "${HOME}" + binDir.dropFirst(home.count)] : [])
+        func isCorral(_ line: String) -> Bool {
+            var code = String(line.prefix { $0 != "#" })
+            for form in forms { code = code.replacingOccurrences(of: form, with: "BIN") }
+            code = code.filter { !" \t\"'".contains($0) }.replacingOccurrences(of: "${PATH}", with: "$PATH")
+            return ["exportPATH=BIN:$PATH", "exportPATH=$PATH:BIN", "PATH=BIN:$PATH", "PATH=$PATH:BIN"].contains(code)
+        }
+        var lines = profile.components(separatedBy: "\n").filter { $0 != Self.pathComment && !isCorral($0) }
+        while lines.last?.trimmingCharacters(in: .whitespaces) == "" { lines.removeLast() }
+        return lines
+    }
+
+    /// Puts pathLine last in ~/.zshrc, after the PATH lines of Herd and Homebrew, so Corral's php wins.
+    /// Older Corral lines go first. Keeps the first original as .zshrc.corral.bak. Returns true when the file changed.
+    @discardableResult
+    func addToPath(_ zshrc: String = NSHomeDirectory() + "/.zshrc") throws -> Bool {
+        let text = (try? String(contentsOfFile: zshrc, encoding: .utf8)) ?? ""
+        let kept = withoutPathLines(text)
+        let new = (kept + (kept.isEmpty ? [] : [""]) + [Self.pathComment, pathLine]).joined(separator: "\n") + "\n"
+        return try writeProfile(zshrc, from: text, to: new)
+    }
+
+    /// Takes Corral's PATH lines out of ~/.zshrc again, for `corral uninstall`.
+    @discardableResult
+    func removeFromPath(_ zshrc: String = NSHomeDirectory() + "/.zshrc") throws -> Bool {
+        guard let text = try? String(contentsOfFile: zshrc, encoding: .utf8) else { return false }
+        let kept = withoutPathLines(text)
+        return try writeProfile(zshrc, from: text, to: kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n")
+    }
+
+    private func writeProfile(_ path: String, from old: String, to new: String) throws -> Bool {
+        guard new != old else { return false }
+        let backup = path + ".corral.bak"
+        if !old.isEmpty && !FileManager.default.fileExists(atPath: backup) { try old.write(toFile: backup, atomically: true, encoding: .utf8) }
+        try new.write(toFile: path, atomically: true, encoding: .utf8)
+        return true
+    }
+
     /// Points a Laravel site's mail at Corral. Keeps the first original as .env.corral.bak, like Herd's .env.herd-services.bak.
     /// The SMTP user name is the site name, so the inbox shows which site sent a message.
     func useCorralMail(_ site: Site) throws {

@@ -97,6 +97,7 @@ final class Model: ObservableObject {
         self.corral = corral
         refresh()
         repair()
+        addToPath()
         watchdog = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.repair() }
         }
@@ -119,6 +120,15 @@ final class Model: ObservableObject {
                 if let message { if self.error != message { self.error = message } }
                 else { self.notice = "Restarted \(down.joined(separator: ", ")) at \(Date.now.formatted(date: .omitted, time: .shortened))." }
             }
+        }
+    }
+
+    /// Keeps Corral's bin folder first in PATH, through the last line of ~/.zshrc. Says so only when the file changed.
+    private func addToPath() {
+        let corral = corral
+        queue.async {
+            guard (try? corral.addToPath()) == true else { return }
+            Task { @MainActor in self.notice = "Corral put its bin folder first in PATH in ~/.zshrc. Open a new terminal to use Corral's php." }
         }
     }
 
