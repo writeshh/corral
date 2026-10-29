@@ -110,6 +110,7 @@ final class LogState: ObservableObject {
 struct InsightsView: View {
     @ObservedObject var model: Model
     @ObservedObject var insights: Insights
+    @ObservedObject var mail: MailServer
     @AppStorage("insightsTab") private var tab = "dumps"
 
     var body: some View {
@@ -117,13 +118,18 @@ struct InsightsView: View {
             Picker("View", selection: $tab) {
                 Text("Dumps").tag("dumps")
                 Text("Logs").tag("logs")
+                Text("Mail").tag("mail")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
             .padding(10)
             Divider()
-            if tab == "dumps" { DumpsView(model: model, insights: insights) } else { LogsView(model: model) }
+            switch tab {
+            case "logs": LogsView(model: model)
+            case "mail": MailView(model: model, mail: mail)
+            default: DumpsView(model: model, insights: insights)
+            }
         }
         .frame(minWidth: 560, minHeight: 420)
     }

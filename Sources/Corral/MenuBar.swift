@@ -35,6 +35,7 @@ struct Snapshot: Sendable {
     var missing: [String] = []             // TLDs that do not resolve to Corral yet
     var herdFound = false
     var dumps = false
+    var mail = false
 
     init() {}
 
@@ -57,6 +58,7 @@ struct Snapshot: Sendable {
         tld = c.config.tld
         herdFound = Corral.herdFound
         dumps = c.config.dumps
+        mail = c.config.mail
         aliases = c.config.aliases
         ownsTest = c.ownsTest
         home = c.home
@@ -206,6 +208,7 @@ final class Model: ObservableObject {
 struct CorralApp: App {
     @StateObject private var model = Model()
     @StateObject private var insights = Insights()
+    @StateObject private var mail = MailServer()
 
     init() { NSApplication.shared.setActivationPolicy(.accessory) } // no Dock icon when run from a terminal
 
@@ -217,7 +220,7 @@ struct CorralApp: App {
 
         Settings { SettingsView(model: model) }
 
-        Window("Insights", id: "insights") { InsightsView(model: model, insights: insights) }
+        Window("Insights", id: "insights") { InsightsView(model: model, insights: insights, mail: mail) }
     }
 }
 
@@ -513,6 +516,14 @@ struct SiteRow: View {
         Button("Copy URL") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(row.url.absoluteString, forType: .string)
+        }
+        if site.proxy == nil && FileManager.default.fileExists(atPath: site.path + "/artisan") {
+            Button("Send Mail to Corral") {
+                model.run("Changing .env") { c in
+                    try c.useCorralMail(site)
+                    Task { @MainActor in model.notice = "\(site.name) sends mail to Corral. Turn on mail in Insights. Run php artisan config:clear if the config is cached." }
+                }
+            }
         }
         if site.proxy == nil {
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: site.path)]) }

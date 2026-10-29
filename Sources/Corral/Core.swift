@@ -11,6 +11,7 @@ struct Config: Codable, Equatable {
     var proxies: [String: String] = [:]  // site name -> upstream URL
     var fpm: [String: FpmPool] = [:]     // PHP version -> pool settings, when not the defaults
     var dumps = false                    // send dump() and dd() output to the Insights window
+    var mail = false                     // catch mail on 127.0.0.1:2525 while the app runs
 
     init() {}
 
@@ -29,6 +30,7 @@ struct Config: Codable, Equatable {
         proxies = try c.decodeIfPresent([String: String].self, forKey: .proxies) ?? d.proxies
         fpm = try c.decodeIfPresent([String: FpmPool].self, forKey: .fpm) ?? d.fpm
         dumps = try c.decodeIfPresent(Bool.self, forKey: .dumps) ?? d.dumps
+        mail = try c.decodeIfPresent(Bool.self, forKey: .mail) ?? d.mail
     }
 }
 
@@ -1226,6 +1228,27 @@ final class Corral: @unchecked Sendable {
         guard let json = try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any] else { throw CorralError("Could not read a dump.") }
         return Dump(time: Date(timeIntervalSince1970: json["time"] as? Double ?? Date().timeIntervalSince1970),
                     text: json["text"] as? String ?? "", source: json["source"] as? String ?? "", request: json["request"] as? String ?? "")
+    }
+
+    /// Points a Laravel site's mail at Corral. Keeps the first original as .env.corral.bak, like Herd's .env.herd-services.bak.
+    /// The SMTP user name is the site name, so the inbox shows which site sent a message.
+    func useCorralMail(_ site: Site) throws {
+        let env = site.path + "/.env", backup = env + ".corral.bak"
+        guard var text = try? String(contentsOfFile: env, encoding: .utf8) else { throw CorralError("\(site.name) has no .env file.") }
+        if !FileManager.default.fileExists(atPath: backup) { try text.write(toFile: backup, atomically: true, encoding: .utf8) }
+        var values = ["MAIL_MAILER": "smtp", "MAIL_HOST": "127.0.0.1", "MAIL_PORT": "2525", "MAIL_USERNAME": site.name]
+        for key in ["MAIL_ENCRYPTION", "MAIL_SCHEME", "MAIL_PASSWORD"] where Self.iniValue(text, key) != nil { values[key] = "null" }
+        for (key, value) in values.sorted(by: { $0.key < $1.key }) { text = Self.setEnv(text, key, value) }
+        try text.write(toFile: env, atomically: true, encoding: .utf8)
+    }
+
+    /// Like setIni, for KEY=value lines. A new key goes after the last MAIL_ line, or at the end.
+    static func setEnv(_ env: String, _ key: String, _ value: String) -> String {
+        var lines = env.components(separatedBy: "\n")
+        if let i = lines.lastIndex(where: { $0.hasPrefix(key + "=") }) { lines[i] = "\(key)=\(value)"; return lines.joined(separator: "\n") }
+        let at = lines.lastIndex { $0.hasPrefix("MAIL_") }.map { $0 + 1 } ?? (lines.last == "" ? lines.count - 1 : lines.count)
+        lines.insert("\(key)=\(value)", at: at)
+        return lines.joined(separator: "\n")
     }
 
     // MARK: Helpers

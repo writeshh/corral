@@ -418,3 +418,25 @@ import Testing
     #expect(c.nginxConf(sites: [shop], installed: ["8.4": "/x"]).contains("fastcgi_param VAR_DUMPER_FORMAT server;"))
     #expect(c.nginxConf(sites: [shop], installed: ["8.4": "/x"]).contains("fastcgi_param VAR_DUMPER_SERVER 127.0.0.1:9912;"))
 }
+
+@Test func mailHeadersAndEnv() throws {
+    let head = "From: Shop <shop@example.test>\r\nSubject: =?utf-8?Q?Gr=C3=BC=C3=9Fe_aus?=\r\n =?utf-8?B?U3RvY2tob2xt?=\r\nTo: ada@example.test"
+    let h = MailMessage.headers(head)
+    #expect(h["from"] == "Shop <shop@example.test>" && h["to"] == "ada@example.test")
+    #expect(MailMessage.decodeWords(h["subject"]!) == "Grüße ausStockholm") // the space between two encoded words goes away
+    #expect(MailMessage.decodeWords("Plain subject") == "Plain subject")
+    #expect(SMTPSession.plainUser(Data("\0shop\0secret".utf8).base64EncodedString()) == "shop")
+
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    try FileManager.default.createDirectory(atPath: tmp + "/shop", withIntermediateDirectories: true)
+    let original = "APP_NAME=Shop\nMAIL_MAILER=log\nMAIL_HOST=smtp.mailgun.org\nMAIL_PASSWORD=secret\nQUEUE=sync\n"
+    try original.write(toFile: tmp + "/shop/.env", atomically: true, encoding: .utf8)
+    let c = Corral(home: tmp + "/home")
+    let shop = Site(name: "shop", path: tmp + "/shop")
+    try c.useCorralMail(shop)
+    try c.useCorralMail(shop)                                    // a second run keeps the first backup
+    #expect(try String(contentsOfFile: tmp + "/shop/.env.corral.bak", encoding: .utf8) == original)
+    #expect(try String(contentsOfFile: tmp + "/shop/.env", encoding: .utf8)
+        == "APP_NAME=Shop\nMAIL_MAILER=smtp\nMAIL_HOST=127.0.0.1\nMAIL_PASSWORD=null\nMAIL_PORT=2525\nMAIL_USERNAME=shop\nQUEUE=sync\n")
+}
