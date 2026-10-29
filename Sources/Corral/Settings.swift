@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 /// The settings window (⌘,). Every change runs on Model's work queue, like the panel.
@@ -45,6 +46,19 @@ struct GeneralTab: View {
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Open Corral at login", isOn: Binding(
+                    get: { model.snap.loginItem == .enabled || model.snap.loginItem == .requiresApproval },
+                    set: model.setLaunchAtLogin
+                ))
+                if model.snap.loginItem == .requiresApproval {
+                    LabeledContent("Allow Corral in Login Items") {
+                        Button("Open System Settings") { SMAppService.openSystemSettingsLoginItems() }
+                    }
+                }
+            } footer: {
+                Text("Corral starts the services again if they ran before, and restarts a service that stops.").foregroundStyle(.secondary)
+            }
             Section {
                 Toggle("Serve .test instead of Herd", isOn: Binding(
                     get: { model.snap.ownsTest },

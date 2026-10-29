@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 /// What the panel shows. Built on the work queue after each job, then published on the main actor.
@@ -26,6 +27,7 @@ struct Snapshot: Sendable {
     var certs: [(host: String, expires: Date?)] = []
     var managed: Set<String> = []          // PHP versions that Corral installed
     var iniPaths: [String: String] = [:]   // PHP version -> php.ini
+    var loginItem = SMAppService.Status.notRegistered
 
     init() {}
 
@@ -52,6 +54,7 @@ struct Snapshot: Sendable {
         certs = sites.filter { c.config.secured.contains($0.name) }.map { (host: c.host($0), expires: c.certExpiry(c.certPath($0))) }
         managed = Set(php.filter { c.isManaged($0.value) }.keys)
         iniPaths = Dictionary(uniqueKeysWithValues: php.map { ($0.key, c.iniPath($0.key, $0.value)) })
+        loginItem = SMAppService.mainApp.status
     }
 }
 
@@ -60,6 +63,7 @@ final class Model: ObservableObject {
     @Published private(set) var snap = Snapshot()
     @Published private(set) var busy: String?
     @Published var error: String?
+    @Published var notice: String?
     @Published var filter = ""
 
     private let corral: Corral
@@ -67,9 +71,39 @@ final class Model: ObservableObject {
 
     var running: Bool { snap.services.first?.up ?? false }
 
+    private var watchdog: Timer?
+
     init(corral: Corral = Corral()) {
         self.corral = corral
         refresh()
+        repair()
+        watchdog = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.repair() }
+        }
+    }
+
+    /// Starts the services that are down, if they ran before: after a login, or when a process stops.
+    /// Like Herd's FpmRepair. The app is the only supervisor, so no LaunchAgent fights it.
+    func repair() {
+        guard busy == nil else { return }
+        let corral = corral
+        queue.async {
+            guard corral.wantsRunning else { return }
+            let down = corral.status().filter { !$0.1 }.map(\.0)
+            guard !down.isEmpty else { return }
+            var message: String?
+            do { try corral.start() } catch { message = error.localizedDescription }
+            let snap = Snapshot(corral)
+            Task { @MainActor in
+                self.snap = snap
+                if let message { if self.error != message { self.error = message } }
+                else { self.notice = "Restarted \(down.joined(separator: ", ")) at \(Date.now.formatted(date: .omitted, time: .shortened))." }
+            }
+        }
+    }
+
+    func setLaunchAtLogin(_ on: Bool) {
+        run(nil) { _ in try on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister() }
     }
 
     func refresh() { run(nil) { _ in } }
@@ -139,6 +173,7 @@ struct Panel: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if let error = model.error { banner(error) }
+            if let notice = model.notice { banner(notice, isError: false) }
             if !model.snap.installed { setupBanner }
             Divider().padding(.top, 10)
             sites
@@ -181,17 +216,18 @@ struct Panel: View {
         .padding([.horizontal, .top], 14)
     }
 
-    private func banner(_ message: String) -> some View {
+    private func banner(_ message: String, isError: Bool = true) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Image(systemName: isError ? "exclamationmark.triangle.fill" : "arrow.clockwise.circle.fill")
+                .foregroundStyle(isError ? Color.red : Color.accentColor)
             Text(message).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            Button { model.error = nil } label: { Image(systemName: "xmark") }
+            Button { if isError { model.error = nil } else { model.notice = nil } } label: { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Dismiss")
         }
         .padding(10)
-        .background(.red.opacity(0.1), in: .rect(cornerRadius: 8))
+        .background((isError ? Color.red : Color.accentColor).opacity(0.1), in: .rect(cornerRadius: 8))
         .padding([.horizontal, .top], 14)
         .transition(.opacity)
     }

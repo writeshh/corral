@@ -514,6 +514,10 @@ final class Corral: @unchecked Sendable {
 
     var isRunning: Bool { alive(run + "/nginx.pid") }
 
+    /// `start` creates this file and `stop` removes it. The app starts the services again
+    /// after a login or a crash only while the file exists.
+    var wantsRunning: Bool { FileManager.default.fileExists(atPath: run + "/autostart") }
+
     /// Idempotent: writes configs, starts whatever is down, reloads nginx if it's already up.
     func start() throws {
         try writeConfigs()
@@ -537,9 +541,11 @@ final class Corral: @unchecked Sendable {
         } else {
             try sh(nginx, nginxArgs)
         }
+        FileManager.default.createFile(atPath: run + "/autostart", contents: nil)
     }
 
     func stop() {
+        try? FileManager.default.removeItem(atPath: run + "/autostart")
         let pids = ((try? FileManager.default.contentsOfDirectory(atPath: run)) ?? []).filter { $0.hasSuffix(".pid") }
         for f in pids { if let pid = readPid(run + "/" + f) { kill(pid, SIGTERM) } }
         for _ in 0..<30 where pids.contains(where: { alive(run + "/" + $0) }) { usleep(100_000) }
