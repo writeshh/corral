@@ -210,7 +210,17 @@ struct CorralApp: App {
     @StateObject private var insights = Insights()
     @StateObject private var mail = MailServer()
 
-    init() { NSApplication.shared.setActivationPolicy(.accessory) } // no Dock icon when run from a terminal
+    init() {
+        Dock.update()
+        let center = NotificationCenter.default
+        center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { Dock.update() }
+        }
+        center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
+            let closing = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            MainActor.assumeIsolated { Dock.update(closing: closing) }
+        }
+    }
 
     var body: some Scene {
         MenuBarExtra("Corral", systemImage: model.running ? "circle.hexagongrid.fill" : "circle.hexagongrid") {
@@ -221,6 +231,19 @@ struct CorralApp: App {
         Settings { SettingsView(model: model) }
 
         Window("Insights", id: "insights") { InsightsView(model: model, insights: insights, mail: mail) }
+    }
+}
+
+/// Corral is a menu bar app. It shows in the Dock and in ⌘-Tab while Settings or Insights is open,
+/// or all the time with "Show Corral in the Dock". The menu bar panel cannot become main, so it does not count.
+@MainActor enum Dock {
+    static func update(closing: ObjectIdentifier? = nil) {
+        let app = NSApplication.shared
+        let open = app.windows.contains { ObjectIdentifier($0) != closing && $0.isVisible && $0.canBecomeMain }
+        let policy: NSApplication.ActivationPolicy = open || UserDefaults.standard.bool(forKey: "showInDock") ? .regular : .accessory
+        guard app.activationPolicy() != policy else { return }
+        app.setActivationPolicy(policy)
+        if policy == .regular && open { app.activate() } // a new Dock icon starts behind the frontmost app
     }
 }
 

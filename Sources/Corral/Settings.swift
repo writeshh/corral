@@ -51,6 +51,7 @@ struct StatusLine: View {
 struct GeneralTab: View {
     @ObservedObject var model: Model
     @StateObject private var domains = DomainDraft()
+    @AppStorage("showInDock") private var showInDock = false
 
     var body: some View {
         Form {
@@ -66,6 +67,11 @@ struct GeneralTab: View {
                 }
             } footer: {
                 Text("Corral starts the services again if they ran before, and restarts a service that stops.").foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Show Corral in the Dock", isOn: $showInDock).onChange(of: showInDock) { Dock.update() }
+            } footer: {
+                Text("Corral always shows in the Dock and in ⌘-Tab while a Corral window is open. Turn this on to keep it there.").foregroundStyle(.secondary)
             }
             Section {
                 TextField("Main TLD", text: $domains.tld)
