@@ -1193,6 +1193,7 @@ final class Corral: @unchecked Sendable {
     /// The script loads only VarDumper classes, not the project's autoloader.
     static let dumpDecoder = #"""
     <?php
+    error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED); // old var-dumper versions warn on new PHP and break the JSON
     $raw = base64_decode(stream_get_contents(STDIN));
     [, $context] = unserialize($raw, ['allowed_classes' => false]);
     $file = $context['source']['file'] ?? '';
@@ -1212,7 +1213,7 @@ final class Corral: @unchecked Sendable {
         'source' => $file === '' ? '' : $file . ':' . ($context['source']['line'] ?? ''),
         'request' => $request ? trim(($request['method'] ?? '') . ' ' . ($request['uri'] ?? '')) : ($context['cli']['command_line'] ?? ''),
         'time' => $context['timestamp'] ?? microtime(true),
-    ]);
+    ], JSON_INVALID_UTF8_SUBSTITUTE);
     """#
 
     func decodeDump(_ payload: String) throws -> Dump {
@@ -1227,7 +1228,9 @@ final class Corral: @unchecked Sendable {
         // A dump() call outside a site still needs VarDumper: use the first site that has it.
         let fallback = sites().map { $0.path + "/vendor/symfony/var-dumper/" }.first { FileManager.default.fileExists(atPath: $0) } ?? ""
         let out = try Self.sh("/bin/sh", ["-c", "exec \"$0\" \"$1\" \"$2\" < \"$3\"", cliPath(fpm), script, fallback, input])
-        guard let json = try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any] else { throw CorralError("Could not read a dump.") }
+        guard let json = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any] else {
+            throw CorralError("Could not read a dump: \(out.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300))")
+        }
         return Dump(time: Date(timeIntervalSince1970: json["time"] as? Double ?? Date().timeIntervalSince1970),
                     text: json["text"] as? String ?? "", source: json["source"] as? String ?? "", request: json["request"] as? String ?? "")
     }
