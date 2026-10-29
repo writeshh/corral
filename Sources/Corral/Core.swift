@@ -924,20 +924,49 @@ final class Corral: @unchecked Sendable {
         try sh("/usr/bin/osascript", ["-e", "do shell script \"/bin/sh \" & quoted form of \"\(escaped)\" with administrator privileges"])
     }
 
-    // MARK: Import from Laravel Herd
+    // MARK: Migrate from Laravel Herd
 
     struct HerdImport {
         var parked: [String] = []
         var links: [String] = []
         var secured: [String] = []
-        var skipped: [String] = []  // Herd certificates with no matching site
+        var skipped: [String] = []                  // Herd certificates with no matching site
         var php: String?
+        var isolated: [String: String] = [:]        // site -> PHP version
+        var proxies: [String: String] = [:]         // site -> upstream URL
+        var installs: [String] = []                 // PHP versions to download
+        var ini: [String: [String: String]] = [:]   // PHP version -> php.ini values that differ
+        var node: [String] = []                     // sites with .nvmrc. Corral does not manage Node.
+
+        var summary: [String] {
+            func list(_ items: [String]) -> String { items.isEmpty ? "none" : items.joined(separator: ", ") }
+            var out = [
+                "Parked folders: \(list(parked))",
+                "Links: \(list(links))",
+                "Sites to serve over HTTPS: \(secured.count)\(secured.isEmpty ? "" : " (\(secured.joined(separator: ", ")))")",
+                "Global PHP: \(php ?? "not found in Herd")",
+            ]
+            if !isolated.isEmpty { out.append("PHP for one site: \(list(isolated.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }))") }
+            if !installs.isEmpty { out.append("PHP to download: \(list(installs))") }
+            for (v, values) in ini.sorted(by: { $0.key < $1.key }) {
+                out.append("php.ini for PHP \(v): \(list(values.sorted { $0.key < $1.key }.map { "\($0.key) = \($0.value)" }))")
+            }
+            if !proxies.isEmpty { out.append("Proxies: \(list(proxies.sorted { $0.key < $1.key }.map { "\($0.key) -> \($0.value)" }))") }
+            if !skipped.isEmpty { out.append("Certificates with no site (skipped): \(list(skipped))") }
+            if !node.isEmpty { out.append("Sites with .nvmrc (Corral does not manage Node, keep nvm): \(list(node))") }
+            return out
+        }
     }
 
     static let herdHome = NSHomeDirectory() + "/Library/Application Support/Herd"
+    static var herdFound: Bool { FileManager.default.fileExists(atPath: herdHome + "/config/valet/config.json") }
 
-    /// Copies Herd's parked folders, links, secured sites and global PHP version. Reads Herd's files, never writes them.
-    func importHerd(from herd: String = herdHome, trust: Bool = true) throws -> HerdImport {
+    /// php.ini lines that only work inside Herd: its extension, dump loader and CA bundle.
+    static let herdOnlyIni: Set<String> = ["extension", "zend_extension", "auto_prepend_file", "auto_append_file", "curl.cainfo", "openssl.cafile"]
+
+    /// Copies Herd's parked folders, links, secured sites, PHP versions (global and per site), php.ini values
+    /// and proxies. Reads Herd's files, never writes them. A dry run changes nothing and returns the plan.
+    func importHerd(from herd: String = herdHome, trust: Bool = true, dryRun: Bool = false) throws -> HerdImport {
         let fm = FileManager.default
         let valet = herd + "/config/valet", sitesDir = valet + "/Sites"
         guard let data = fm.contents(atPath: valet + "/config.json"),
@@ -946,6 +975,9 @@ final class Corral: @unchecked Sendable {
         }
         func norm(_ p: String) -> String { URL(fileURLWithPath: p).standardizedFileURL.path }
         func isDir(_ p: String) -> Bool { var d: ObjCBool = false; return fm.fileExists(atPath: p, isDirectory: &d) && d.boolValue }
+        func version(_ m: some StringProtocol, _ n: some StringProtocol) -> String { "\(m).\(n)" }
+        let saved = config
+        defer { if dryRun { config = saved } } // a dry run works on the config, then puts it back
         var result = HerdImport()
 
         // Herd's own Sites folder holds only its links. Those come next.
@@ -965,15 +997,33 @@ final class Corral: @unchecked Sendable {
             result.links.append(name)
         }
 
+        // Nginx/<site>.<tld>: a proxy (`herd proxy`) or a site with its own PHP version (`herd isolate`).
+        let tld = json["tld"] as? String ?? "test"
+        var names = Set(sites().map(\.name))
+        for file in ((try? fm.contentsOfDirectory(atPath: valet + "/Nginx")) ?? []).sorted() where file.hasSuffix("." + tld) {
+            let name = Self.slug(String(file.dropLast(tld.count + 1)))
+            let text = (try? String(contentsOfFile: "\(valet)/Nginx/\(file)", encoding: .utf8)) ?? ""
+            if !names.contains(name), let m = text.firstMatch(of: /proxy_pass\s+(https?:\/\/[^;\s]+);/) {
+                config.proxies[name] = String(m.1)
+                result.proxies[name] = String(m.1)
+                names.insert(name)
+            } else if names.contains(name), config.isolated[name] == nil,
+                      let m = text.firstMatch(of: /ISOLATED_PHP_VERSION=(?:php@)?(\d)\.?(\d+)/) ?? text.firstMatch(of: /herd(\d)(\d+)\.sock/) {
+                config.isolated[name] = version(m.1, m.2)
+                result.isolated[name] = version(m.1, m.2)
+            }
+        }
+
         // Secured sites: Certificates/<site>.<tld>.crt
-        let suffix = ".\(json["tld"] as? String ?? "test").crt"
         let all = sites()
-        for file in ((try? fm.contentsOfDirectory(atPath: valet + "/Certificates")) ?? []).sorted() where file.hasSuffix(suffix) {
-            let name = Self.slug(String(file.dropLast(suffix.count)))
+        for file in ((try? fm.contentsOfDirectory(atPath: valet + "/Certificates")) ?? []).sorted() where file.hasSuffix(".\(tld).crt") {
+            let name = Self.slug(String(file.dropLast(tld.count + 5)))
             guard let site = all.first(where: { $0.name == name }) else { result.skipped.append(name); continue }
             if config.secured.contains(name) { continue }
-            if try ensureCA(), trust { try trustCA() }
-            try makeCert(hostnames(site))
+            if !dryRun {
+                if try ensureCA(), trust { try trustCA() }
+                try makeCert(hostnames(site))
+            }
             config.secured.insert(name)
             result.secured.append(name)
         }
@@ -981,14 +1031,105 @@ final class Corral: @unchecked Sendable {
         // Global PHP: herd.sock links to herd84.sock for PHP 8.4.
         if let target = try? fm.destinationOfSymbolicLink(atPath: herd + "/herd.sock"),
            let m = (target as NSString).lastPathComponent.firstMatch(of: /^herd(\d)(\d+)\.sock$/) {
-            let version = "\(m.1).\(m.2)"
-            if phpVersions()[version] == nil { try installPHP(version) }
-            config.php = version
-            result.php = version
+            config.php = version(m.1, m.2)
+            result.php = config.php
         }
 
-        try apply()
+        let installed = phpVersions()
+        result.installs = Self.sortVersions(Set([result.php].compactMap { $0 } + result.isolated.values).filter { installed[$0] == nil })
+        if !dryRun { for v in result.installs { try installPHP(v) } }
+
+        // php.ini values from config/php/84/php.ini, for Corral's own builds only. Homebrew's php.ini stays as it is.
+        for dir in ((try? fm.contentsOfDirectory(atPath: herd + "/config/php")) ?? []).sorted() {
+            guard let m = dir.wholeMatch(of: /(\d)(\d+)/), let text = try? String(contentsOfFile: "\(herd)/config/php/\(dir)/php.ini", encoding: .utf8) else { continue }
+            let v = version(m.1, m.2)
+            let fpm = phpVersions()[v]
+            guard fpm.map(isManaged) ?? result.installs.contains(v) else { continue }
+            let current = fpm.flatMap { try? String(contentsOfFile: iniPath(v, $0), encoding: .utf8) } ?? Self.defaultPhpIni
+            var values: [String: String] = [:]
+            for line in text.components(separatedBy: "\n") where !line.hasPrefix(";") && !line.hasPrefix("[") {
+                let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                guard parts.count == 2, !Self.herdOnlyIni.contains(parts[0]), !parts[1].contains("Herd") else { continue }
+                values[parts[0]] = parts[1]
+            }
+            values = values.filter { Self.iniValue(current, $0.key) != $0.value }
+            if values.isEmpty { continue }
+            result.ini[v] = values
+            if !dryRun { try savePHPSettings(v, ini: values, pool: config.fpm[v] ?? FpmPool()) }
+        }
+
+        result.node = sites().filter { $0.proxy == nil && fm.fileExists(atPath: $0.path + "/.nvmrc") }.map(\.name)
+        if !dryRun { try apply() }
         return result
+    }
+
+    /// Quits Herd and waits up to 10 seconds. Herd stops its own nginx, dnsmasq and php-fpm.
+    static func quitHerd() throws {
+        let apps = NSRunningApplication.runningApplications(withBundleIdentifier: "de.beyondco.herd")
+        for app in apps { app.terminate() }
+        for _ in 0..<100 where apps.contains(where: { kill($0.processIdentifier, 0) == 0 }) { usleep(100_000) }
+        if apps.contains(where: { kill($0.processIdentifier, 0) == 0 }) { throw CorralError("Herd did not quit. Quit it from its menu, then try again.") }
+    }
+
+    /// Herd's login item. Without it, Herd does not start at login and take .test back.
+    /// ponytail: only the classic login item that System Events lists. A Herd that uses SMAppService needs System Settings.
+    static var herdLoginItem: Bool {
+        (try? sh("/usr/bin/osascript", ["-e", "tell application \"System Events\" to get the name of every login item"]))?
+            .components(separatedBy: ", ").contains { $0.trimmingCharacters(in: .whitespacesAndNewlines) == "Herd" } ?? false
+    }
+
+    static func setHerdLoginItem(_ on: Bool) throws {
+        let script = on ? "make login item at end with properties {path:\"/Applications/Herd.app\", hidden:false}" : "delete login item \"Herd\""
+        try sh("/usr/bin/osascript", ["-e", "tell application \"System Events\" to \(script)"])
+    }
+
+    /// The last step of a move from Herd: serve .test, start the services, then check every site.
+    func finishHerdMove() throws -> [(site: String, problem: String)] {
+        if Self.herdIsRunning { try Self.quitHerd() }
+        try start()
+        if !ownsTest { try config.tld == Self.sharedTLD ? install() : takeover() }
+        return checkSites()
+    }
+
+    /// Requests each PHP site through nginx and names the likely cause of an error. Herd and Corral share the
+    /// same databases, so most failures are a database or a `composer install` that Herd's copy had and this one lacks.
+    func checkSites() -> [(site: String, problem: String)] {
+        let installed = phpVersions()
+        var out: [(String, String)] = []
+        for site in sites() where site.proxy == nil {
+            let https = config.secured.contains(site.name), host = host(site)
+            let port = https ? "443:127.0.0.1:\(Self.httpsPort)" : "80:127.0.0.1:\(Self.httpPort)"
+            let log = php(for: site, installed).map { "\(logs)/php\($0)-fpm.log" }
+            let logStart = log.flatMap { try? FileManager.default.attributesOfItem(atPath: $0)[.size] as? UInt64 } ?? 0
+            let body = FileManager.default.temporaryDirectory.appendingPathComponent("corral-check-\(UUID().uuidString)").path
+            defer { try? FileManager.default.removeItem(atPath: body) }
+            let status = (try? sh("/usr/bin/curl", ["-sk", "--max-time", "20", "-o", body, "-w", "%{http_code}",
+                                                    "--connect-to", "\(host):\(port)", url(site).absoluteString])) ?? "000"
+            var text = (try? String(contentsOfFile: body, encoding: .utf8)) ?? ""
+            if let log, let h = FileHandle(forReadingAtPath: log) {
+                try? h.seek(toOffset: logStart)
+                text += String(decoding: h.readDataToEndOfFile(), as: UTF8.self)
+            }
+            if let problem = Self.diagnose(status: Int(status) ?? 0, text) { out.append((site.name, problem)) }
+        }
+        return out
+    }
+
+    static func diagnose(status: Int, _ text: String) -> String? {
+        let causes: [(String, String)] = [
+            ("vendor/autoload.php", "missing Composer packages: run composer install"),
+            ("[1049]", "missing database"),
+            ("Unknown database", "missing database"),
+            ("[1045]", "wrong database user or password"),
+            ("Access denied for user", "wrong database user or password"),
+            ("[2002]", "the database server does not run"),
+            ("Error establishing a database connection", "WordPress cannot connect to its database"),
+            ("could not find driver", "a PHP database extension is missing"),
+            ("No Corral site here", "nginx has no site for this name"),
+        ]
+        if let cause = causes.first(where: { text.contains($0.0) }) { return cause.1 }
+        if status == 0 { return "no response" }
+        return status >= 500 ? "HTTP \(status)" : nil
     }
 
     // MARK: Helpers
@@ -1003,9 +1144,12 @@ final class Corral: @unchecked Sendable {
 
     func alive(_ pidFile: String) -> Bool { readPid(pidFile).map { kill($0, 0) == 0 } ?? false }
 
+    @discardableResult
+    func sh(_ exe: String, _ args: [String]) throws -> String { try Self.sh(exe, args) }
+
     /// Output goes to a temp file, not a pipe: daemonizing children keep inherited fds open.
     @discardableResult
-    func sh(_ exe: String, _ args: [String]) throws -> String {
+    static func sh(_ exe: String, _ args: [String]) throws -> String {
         let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("corral-\(UUID().uuidString)")
         FileManager.default.createFile(atPath: outURL.path, contents: nil)
         defer { try? FileManager.default.removeItem(at: outURL) }

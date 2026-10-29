@@ -193,12 +193,35 @@ import Testing
     for f in ["shop.test.crt", "rfsudev.test.crt", "gone.test.crt", "shop.test.key"] { fm.createFile(atPath: "\(valet)/Certificates/\(f)", contents: nil) }
     try fm.createSymbolicLink(atPath: herd + "/herd.sock", withDestinationPath: herd + "/herd84.sock")
 
+    try fm.createDirectory(atPath: valet + "/Nginx", withIntermediateDirectories: true)
+    try fm.createDirectory(atPath: herd + "/config/php/84", withIntermediateDirectories: true)
+    try "location / { proxy_pass http://127.0.0.1:3000; }".write(toFile: valet + "/Nginx/api.test", atomically: true, encoding: .utf8)
+    try "fastcgi_pass \"unix:/x/herd84.sock\";".write(toFile: valet + "/Nginx/rfsudev.test", atomically: true, encoding: .utf8)
+    try "# ISOLATED_PHP_VERSION=php@8.2\n".write(toFile: valet + "/Nginx/blog.test", atomically: true, encoding: .utf8)
+    try "upload_max_filesize=64M\nmemory_limit = 1024M\nextension=/Herd/herd-84.so\ncurl.cainfo=/x/cacert.pem\n;max_input_vars=9\n"
+        .write(toFile: herd + "/config/php/84/php.ini", atomically: true, encoding: .utf8)
+    fm.createFile(atPath: tmp + "/projects/shop/.nvmrc", contents: Data("20\n".utf8))
+
     let c = Corral(home: tmp + "/home")
     c.config.parked = []
     try c.mkdirs(c.phpDir + "/8.4")  // PHP 8.4 is "installed", so the import downloads nothing
     for bin in ["php", "php-fpm"] { fm.createFile(atPath: "\(c.phpDir)/8.4/\(bin)", contents: Data("#!/bin/sh\n".utf8)); chmod("\(c.phpDir)/8.4/\(bin)", 0o755) }
+    try Corral.defaultPhpIni.write(toFile: c.phpDir + "/8.4/php.ini", atomically: true, encoding: .utf8)
 
+    // A dry run shows the plan and changes nothing.
+    let before = c.config
+    let plan = try c.importHerd(from: herd, trust: false, dryRun: true)
+    #expect(c.config == before && !fm.fileExists(atPath: c.certs))
+    #expect(plan.isolated == ["rfsudev": "8.4", "blog": "8.2"] && plan.installs == ["8.2"])
+    #expect(plan.proxies == ["api": "http://127.0.0.1:3000"])
+    #expect(plan.ini == ["8.4": ["upload_max_filesize": "64M"]])  // Herd-only lines and unchanged values left out
+    #expect(plan.node == ["shop"])
+    #expect(plan.summary.contains("PHP to download: 8.2"))
+
+    try fm.removeItem(atPath: valet + "/Nginx/blog.test")          // the real run must not download PHP 8.2
     let r = try c.importHerd(from: herd, trust: false)
+    #expect(c.config.isolated == ["rfsudev": "8.4"] && c.config.proxies == ["api": "http://127.0.0.1:3000"])
+    #expect(Corral.iniValue(try String(contentsOfFile: c.phpDir + "/8.4/php.ini", encoding: .utf8), "upload_max_filesize") == "64M")
     #expect(r.parked == [tmp + "/projects"])                  // trailing slash removed, Sites and missing folder ignored
     #expect(r.links == ["blog", "rfsudev"])                   // shop is already parked, dead link ignored
     #expect(c.config.links["rfsudev"] == tmp + "/projects/rfsu")
@@ -208,7 +231,13 @@ import Testing
     #expect(fm.fileExists(atPath: c.certs + "/shop.test.crt"))
 
     let again = try c.importHerd(from: herd, trust: false)    // a second run changes nothing
-    #expect(again.parked.isEmpty && again.links.isEmpty && again.secured.isEmpty)
+    #expect(again.parked.isEmpty && again.links.isEmpty && again.secured.isEmpty && again.isolated.isEmpty && again.ini.isEmpty)
+
+    #expect(Corral.diagnose(status: 500, "require(/x/vendor/autoload.php): Failed to open stream") == "missing Composer packages: run composer install")
+    #expect(Corral.diagnose(status: 500, "SQLSTATE[HY000] [1045] Access denied for user 'root'") == "wrong database user or password")
+    #expect(Corral.diagnose(status: 500, "") == "HTTP 500")
+    #expect(Corral.diagnose(status: 0, "") == "no response")
+    #expect(Corral.diagnose(status: 200, "<html>") == nil)
 }
 
 @Test func installPhpFromManifest() throws {

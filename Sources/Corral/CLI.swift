@@ -6,7 +6,10 @@ enum CLI {
 
       install | uninstall          one-time system setup (resolver, loopback alias, pf 80/443 redirect)
       takeover | handback          send .test to Corral, or give it back to Herd
-      import:herd                  copy Herd's parked folders, links, secured sites and global PHP
+      migrate:herd [--dry-run]     move from Herd in one step: copy its sites, PHP versions, php.ini values
+                   [--yes]         and proxies, quit Herd, take over .test, then check every site
+      migrate:herd --undo          give .test back to Herd. Herd's own files never change.
+      import:herd                  only copy the Herd settings (the first part of migrate:herd)
       start | stop | restart       nginx, dnsmasq, php-fpm
       status                       service state
       park [dir] | forget [dir]    serve every subfolder of dir as <folder>.<tld>
@@ -57,12 +60,29 @@ enum CLI {
                     print("Not resolving yet: \(missing.map { "." + $0 }.joined(separator: ", ")). Run `corral install`.")
                 }
             case "import:herd":
-                let r = try corral.importHerd()
-                print("Parked folders added: \(r.parked.isEmpty ? "none" : r.parked.joined(separator: ", "))")
-                print("Links added: \(r.links.isEmpty ? "none" : r.links.joined(separator: ", "))")
-                print("Sites secured: \(r.secured.count)\(r.secured.isEmpty ? "" : " (\(r.secured.joined(separator: ", ")))")")
-                if !r.skipped.isEmpty { print("Certificates skipped, no matching site: \(r.skipped.joined(separator: ", "))") }
-                print("Global PHP: \(r.php ?? "not found in Herd")")
+                try corral.importHerd().summary.forEach { print($0) }
+            case "migrate:herd":
+                let flags = Set(args.dropFirst())
+                if flags.contains("--undo") {
+                    try corral.runAsAdmin(corral.handbackScript())
+                    if !Corral.herdLoginItem, confirm("Add Herd to your login items again?", flags) { try Corral.setHerdLoginItem(true) }
+                    print(".\(Corral.sharedTLD) goes to Herd again. Start Herd to use it. Corral keeps its own settings.")
+                    break
+                }
+                let plan = try corral.importHerd(dryRun: true)
+                print("Corral will copy this from Herd:")
+                plan.summary.forEach { print("  " + $0) }
+                print("Then it quits Herd, serves .\(Corral.sharedTLD), and checks every site.")
+                if flags.contains("--dry-run") { print("Dry run: nothing changed."); break }
+                guard confirm("Continue?", flags) else { break }
+                if Corral.herdLoginItem, confirm("Remove Herd from your login items, so it does not take .test back at login?", flags) {
+                    try Corral.setHerdLoginItem(false)
+                }
+                _ = try corral.importHerd()
+                let problems = try corral.finishHerdMove()
+                print(problems.isEmpty ? "Done. Every site answers." : "Done. These sites need attention:")
+                for p in problems { print("  \(p.site): \(p.problem)") }
+                print("To go back: corral migrate:herd --undo")
             case "takeover":
                 try corral.takeover()
                 print(".\(Corral.sharedTLD) now goes to Corral. Run `corral handback` before you start Herd again.")
@@ -155,6 +175,14 @@ enum CLI {
             FileHandle.standardError.write(Data("corral: \(error.localizedDescription)\n".utf8))
             return 1
         }
+    }
+
+    /// Asks on the terminal. --yes answers yes. No terminal (a script) answers no.
+    static func confirm(_ question: String, _ flags: Set<String>) -> Bool {
+        if flags.contains("--yes") { return true }
+        guard isatty(STDIN_FILENO) != 0 else { return false }
+        print("\(question) [y/N] ", terminator: "")
+        return ["y", "yes"].contains(readLine()?.lowercased() ?? "")
     }
 
     static func absolute(_ path: String, _ cwd: String) -> String {

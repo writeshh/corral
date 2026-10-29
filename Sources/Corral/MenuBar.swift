@@ -33,6 +33,7 @@ struct Snapshot: Sendable {
     var tld = Config().tld
     var aliases: [String] = []
     var missing: [String] = []             // TLDs that do not resolve to Corral yet
+    var herdFound = false
 
     init() {}
 
@@ -53,6 +54,7 @@ struct Snapshot: Sendable {
         missing = c.resolverTLDs(sites).filter { !Corral.resolverIsCorral("/etc/resolver/" + $0) }
         installed = missing.isEmpty
         tld = c.config.tld
+        herdFound = Corral.herdFound
         aliases = c.config.aliases
         ownsTest = c.ownsTest
         home = c.home
@@ -112,6 +114,49 @@ final class Model: ObservableObject {
                 if let message { if self.error != message { self.error = message } }
                 else { self.notice = "Restarted \(down.joined(separator: ", ")) at \(Date.now.formatted(date: .omitted, time: .shortened))." }
             }
+        }
+    }
+
+    /// Shows what a move from Herd changes (a dry run), then moves on confirmation.
+    func moveFromHerd() {
+        busy = "Reading Herd"
+        error = nil
+        let corral = corral
+        queue.async {
+            let plan = Result { try corral.importHerd(dryRun: true) }
+            let loginItem = Corral.herdLoginItem
+            Task { @MainActor in
+                self.busy = nil
+                switch plan {
+                case .failure(let e): self.error = e.localizedDescription
+                case .success(let plan): self.confirmMove(plan, loginItem: loginItem)
+                }
+            }
+        }
+    }
+
+    private func confirmMove(_ plan: Corral.HerdImport, loginItem: Bool) {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "Move from Herd to Corral?"
+        alert.informativeText = plan.summary.joined(separator: "\n")
+            + "\n\nCorral then quits Herd, serves .test and checks every site. Herd's own files do not change. To go back, run: corral migrate:herd --undo"
+        alert.addButton(withTitle: "Move")
+        alert.addButton(withTitle: "Cancel")
+        if loginItem {
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = "Remove Herd from login items"
+            alert.suppressionButton?.state = .on
+        }
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let removeLoginItem = loginItem && alert.suppressionButton?.state == .on
+        run("Moving from Herd") { c in
+            if removeLoginItem { try Corral.setHerdLoginItem(false) }
+            _ = try c.importHerd()
+            let problems = try c.finishHerdMove()
+            let text = problems.isEmpty ? "Moved from Herd. Every site answers."
+                : "Moved from Herd. These sites need attention: " + problems.map { "\($0.site) (\($0.problem))" }.joined(separator: ", ")
+            Task { @MainActor in self.notice = text }
         }
     }
 
@@ -176,6 +221,7 @@ struct CorralApp: App {
 struct Panel: View {
     @ObservedObject var model: Model
     @Environment(\.openSettings) private var openSettings
+    @AppStorage("hideHerdMove") private var hideHerdMove = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var rows: [Snapshot.Row] {
@@ -187,7 +233,8 @@ struct Panel: View {
             header
             if let error = model.error { banner(error) }
             if let notice = model.notice { banner(notice, isError: false) }
-            if !model.snap.installed { setupBanner }
+            if model.snap.herdFound && !model.snap.ownsTest && !hideHerdMove { herdBanner }
+            else if !model.snap.installed { setupBanner }
             Divider().padding(.top, 10)
             sites
             Divider()
@@ -231,7 +278,7 @@ struct Panel: View {
 
     private func banner(_ message: String, isError: Bool = true) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: isError ? "exclamationmark.triangle.fill" : "arrow.clockwise.circle.fill")
+            Image(systemName: isError ? "exclamationmark.triangle.fill" : "info.circle.fill")
                 .foregroundStyle(isError ? Color.red : Color.accentColor)
             Text(message).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -257,6 +304,24 @@ struct Panel: View {
             Spacer()
             Button("Set Up…") { model.run("Setting up") { try $0.install() } }
                 .disabled(model.busy != nil)
+        }
+        .padding(10)
+        .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
+        .padding([.horizontal, .top], 14)
+    }
+
+    private var herdBanner: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Laravel Herd found").font(.callout.weight(.semibold))
+                Text("Move its sites, PHP versions and settings.").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Move…", action: model.moveFromHerd).disabled(model.busy != nil)
+            Button { hideHerdMove = true } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Not now")
+                .help("Not now. The More menu keeps the command.")
         }
         .padding(10)
         .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
@@ -336,6 +401,9 @@ struct Panel: View {
                         else { model.run("Giving .test back") { try $0.runAsAdmin($0.handbackScript()) } }
                     }
                 ))
+                if model.snap.herdFound {
+                    Button("Move from Herd…", action: model.moveFromHerd).disabled(model.busy != nil)
+                }
                 Button("Restart Services") { model.run("Restarting") { c in c.stop(); try c.start() } }
                     .disabled(!model.running)
                 Button("Open Config Folder") { NSWorkspace.shared.open(URL(fileURLWithPath: model.snap.home)) }
