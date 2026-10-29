@@ -227,14 +227,43 @@ struct CorralApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("Corral", systemImage: model.running ? "circle.hexagongrid.fill" : "circle.hexagongrid") {
+        MenuBarExtra {
             Panel(model: model)
+        } label: {
+            Image(nsImage: Self.menuBarIcon(running: model.running)).accessibilityLabel("Corral")
         }
         .menuBarExtraStyle(.window)
 
         Settings { SettingsView(model: model) }
 
         Window("Insights", id: "insights") { InsightsView(model: model, insights: insights, mail: mail) }
+    }
+
+    /// The Hex C from Resources/AppIcon.svg as a template image. The site hexagon shows only while the services run.
+    static func menuBarIcon(running: Bool) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
+            // The mark spans 34...222 x 22...234 on the SVG's 256 grid, stroke included. Scale it to 16 pt high and centre it.
+            let scale = 16.0 / 212, transform = NSAffineTransform()
+            transform.translateX(by: (18 - 188 * scale) / 2 - 34 * scale, yBy: 1 - 22 * scale)
+            transform.scale(by: scale)
+            let c = NSBezierPath(), site = NSBezierPath()
+            c.move(to: NSPoint(x: 207.67, y: 82))
+            for (x, y): (CGFloat, CGFloat) in [(128, 36), (48.33, 82), (48.33, 174), (128, 220), (207.67, 174)] { c.line(to: NSPoint(x: x, y: y)) }
+            site.move(to: NSPoint(x: 128, y: 98))
+            for (x, y): (CGFloat, CGFloat) in [(154, 113), (154, 143), (128, 158), (102, 143), (102, 113)] { site.line(to: NSPoint(x: x, y: y)) }
+            site.close()
+            c.transform(using: transform as AffineTransform)
+            site.transform(using: transform as AffineTransform)
+            c.lineWidth = 28 * scale
+            c.lineJoinStyle = .round
+            c.lineCapStyle = .round
+            NSColor.black.set()
+            c.stroke()
+            if running { site.fill() }
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 }
 
