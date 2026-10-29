@@ -21,13 +21,19 @@ struct Snapshot: Sendable {
     var ownsTest = false
     var home = ""
     var parked: [String] = []
+    var links: [(name: String, path: String)] = []
+    var proxies: [(name: String, url: String)] = []
+    var certs: [(host: String, expires: Date?)] = []
+    var managed: Set<String> = []          // PHP versions that Corral installed
+    var iniPaths: [String: String] = [:]   // PHP version -> php.ini
 
     init() {}
 
     init(_ c: Corral) {
         let php = c.phpVersions()
         let tilde = NSHomeDirectory()
-        rows = c.sites().map { s in
+        let sites = c.sites()
+        rows = sites.map { s in
             let shortPath = s.path.hasPrefix(tilde) ? "~" + s.path.dropFirst(tilde.count) : s.path
             let version = s.proxy == nil ? c.php(for: s, php) : nil
             return Row(site: s, host: c.host(s), url: c.url(s),
@@ -41,6 +47,11 @@ struct Snapshot: Sendable {
         ownsTest = c.ownsTest
         home = c.home
         parked = c.config.parked
+        links = c.config.links.sorted { $0.key < $1.key }.map { (name: $0.key, path: $0.value) }
+        proxies = c.config.proxies.sorted { $0.key < $1.key }.map { (name: $0.key, url: $0.value) }
+        certs = sites.filter { c.config.secured.contains($0.name) }.map { (host: c.host($0), expires: c.certExpiry(c.certPath($0))) }
+        managed = Set(php.filter { c.isManaged($0.value) }.keys)
+        iniPaths = Dictionary(uniqueKeysWithValues: php.map { ($0.key, c.iniPath($0.key, $0.value)) })
     }
 }
 
@@ -108,6 +119,8 @@ struct CorralApp: App {
             Panel(model: model)
         }
         .menuBarExtraStyle(.window)
+
+        Settings { SettingsView(model: model) }
     }
 }
 
@@ -115,6 +128,7 @@ struct CorralApp: App {
 
 struct Panel: View {
     @ObservedObject var model: Model
+    @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var rows: [Snapshot.Row] {
@@ -273,6 +287,8 @@ struct Panel: View {
                 Button("Restart Services") { model.run("Restarting") { c in c.stop(); try c.start() } }
                     .disabled(!model.running)
                 Button("Open Config Folder") { NSWorkspace.shared.open(URL(fileURLWithPath: model.snap.home)) }
+                Divider()
+                Button("Settings…") { NSApp.activate(); openSettings() }.keyboardShortcut(",")
                 Divider()
                 Button("Quit Corral") { NSApp.terminate(nil) }.keyboardShortcut("q")
             } label: {

@@ -195,6 +195,11 @@ final class Corral: @unchecked Sendable {
         isManaged(fpm) ? ["-c", (fpm as NSString).deletingLastPathComponent + "/php.ini"] : []
     }
 
+    /// The php.ini file that a version reads.
+    func iniPath(_ version: String, _ fpm: String) -> String {
+        isManaged(fpm) ? (fpm as NSString).deletingLastPathComponent + "/php.ini" : "\(brew)/etc/php/\(version)/php.ini"
+    }
+
     // Same values as Herd's php.ini, so sites behave the same after a move. output_buffering keeps
     // early notices (for example PHP 8.4 deprecations) from breaking redirects and cookies.
     static let defaultPhpIni = """
