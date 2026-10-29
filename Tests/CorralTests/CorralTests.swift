@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import Corral
 
@@ -417,6 +418,11 @@ import Testing
     c.config.dumps = true
     #expect(c.nginxConf(sites: [shop], installed: ["8.4": "/x"]).contains("fastcgi_param VAR_DUMPER_FORMAT server;"))
     #expect(c.nginxConf(sites: [shop], installed: ["8.4": "/x"]).contains("fastcgi_param VAR_DUMPER_SERVER 127.0.0.1:9912;"))
+
+    let dump = Corral.Dump(time: Date(), text: "\u{1B}[39m\u{1B}[34marray:1\u{1B}[39m [\u{1B}[m\n  \u{1B}[90m0\u{1B}[39m => \u{1B}[33mhi\u{1B}[39m\u{1B}]8;;file:///x\u{1B}\\\n]",
+                           source: "", request: "")
+    #expect(String(dump.styled.characters) == "array:1 [\n  0 => hi\n]")
+    #expect(dump.styled.runs.compactMap(\.foregroundColor) == [.cyan, .blue, .green])
 }
 
 @Test func mailHeadersAndEnv() throws {

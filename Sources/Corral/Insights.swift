@@ -135,6 +135,29 @@ struct InsightsView: View {
     }
 }
 
+extension Corral.Dump {
+    /// Colors for the SGR codes that dumpDecoder gives each token type. System colors follow light and dark mode.
+    static let colors: [Int: Color] = [31: .blue, 32: .orange, 33: .green, 34: .cyan, 35: .secondary, 36: .purple, 37: .teal, 90: .blue]
+
+    /// The dump text with its color codes turned into colors. Hyperlink codes (OSC 8) are dropped.
+    var styled: AttributedString {
+        var out = AttributedString(), color: Color?, rest = Substring(text)
+        func add(_ s: Substring) { var piece = AttributedString(s); piece.foregroundColor = color; out += piece }
+        while let esc = rest.firstIndex(of: "\u{1B}") {
+            add(rest[..<esc])
+            rest = rest[rest.index(after: esc)...]
+            if rest.first == "]" {
+                rest = rest.range(of: "\u{1B}\\").map { rest[$0.upperBound...] } ?? ""
+            } else if rest.first == "[", let m = rest.firstIndex(of: "m") {
+                color = rest[rest.index(after: rest.startIndex)..<m].split(separator: ";").last.flatMap { Int($0) }.flatMap { Self.colors[$0] }
+                rest = rest[rest.index(after: m)...]
+            }
+        }
+        add(rest)
+        return out
+    }
+}
+
 struct DumpsView: View {
     @ObservedObject var model: Model
     @ObservedObject var insights: Insights
@@ -169,16 +192,18 @@ struct DumpsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(insights.dumps) { dump in
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(dump.request).font(.caption.weight(.semibold)).lineLimit(1)
                             Spacer()
                             Text(dump.time.formatted(date: .omitted, time: .standard)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
                         Text((dump.source as NSString).abbreviatingWithTildeInPath).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
-                        Text(dump.text).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                        Text(dump.styled).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(8)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 6)
                 }
             }
         }

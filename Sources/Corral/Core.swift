@@ -1183,7 +1183,7 @@ final class Corral: @unchecked Sendable {
     struct Dump: Identifiable, Sendable {
         let id = UUID()
         let time: Date
-        let text: String
+        let text: String     // CliDumper output with SGR color codes, see dumpDecoder
         let source: String   // file:line of the dump() call
         let request: String  // "GET /path", or the command line
     }
@@ -1206,7 +1206,11 @@ final class Corral: @unchecked Sendable {
     if (!class_exists(Symfony\Component\VarDumper\Cloner\Data::class)) { fwrite(STDERR, "symfony/var-dumper not found for $file"); exit(1); }
     [$data] = unserialize($raw, ['allowed_classes' => [Symfony\Component\VarDumper\Cloner\Data::class, Symfony\Component\VarDumper\Cloner\Stub::class]]);
     $dumper = new Symfony\Component\VarDumper\Dumper\CliDumper(null, null, 0);
-    $dumper->setColors(false);
+    $dumper->setColors(true);
+    $dumper->setDisplayOptions(['fileLinkFormat' => false]); // no source links: they add a "^" to the text
+    // One SGR code per token type. Dump.styled maps the codes to colors.
+    $dumper->setStyles(['default' => '39', 'public' => '39', 'protected' => '39', 'private' => '39', 'num' => '31', 'const' => '32',
+        'str' => '33', 'note' => '34', 'ref' => '35', 'meta' => '36', 'key' => '37', 'index' => '90']);
     $request = $context['request'] ?? null;
     echo json_encode([
         'text' => $dumper->dump($data, true),
