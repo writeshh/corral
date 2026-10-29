@@ -1119,18 +1119,19 @@ final class Corral: @unchecked Sendable {
 
     /// Requests each PHP site through nginx and names the likely cause of an error. Herd and Corral share the
     /// same databases, so most failures are a database or a `composer install` that Herd's copy had and this one lacks.
+    /// Requests go to the address that the browser uses, so the check also covers the pf redirect. Some pf rules
+    /// (for example from Herd) drop direct connections to nginx's own ports.
     func checkSites() -> [(site: String, problem: String)] {
         let installed = phpVersions()
         var out: [(String, String)] = []
         for site in sites() where site.proxy == nil {
-            let https = config.secured.contains(site.name), host = host(site)
-            let port = https ? "443:127.0.0.1:\(Self.httpsPort)" : "80:127.0.0.1:\(Self.httpPort)"
+            let port = config.secured.contains(site.name) ? 443 : 80, host = host(site)
             let log = php(for: site, installed).map { "\(logs)/php\($0)-fpm.log" }
             let logStart = log.flatMap { try? FileManager.default.attributesOfItem(atPath: $0)[.size] as? UInt64 } ?? 0
             let body = FileManager.default.temporaryDirectory.appendingPathComponent("corral-check-\(UUID().uuidString)").path
             defer { try? FileManager.default.removeItem(atPath: body) }
             let status = (try? sh("/usr/bin/curl", ["-sk", "--max-time", "20", "-o", body, "-w", "%{http_code}",
-                                                    "--connect-to", "\(host):\(port)", url(site).absoluteString])) ?? "000"
+                                                    "--connect-to", "\(host):\(port):\(Self.loopback):\(port)", url(site).absoluteString])) ?? "000"
             var text = (try? String(contentsOfFile: body, encoding: .utf8)) ?? ""
             if let log, let h = FileHandle(forReadingAtPath: log) {
                 try? h.seek(toOffset: logStart)
