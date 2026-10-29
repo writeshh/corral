@@ -28,6 +28,9 @@ jobs:
           key: php-sources-${{ matrix.php }}-${{ hashFiles('scripts/build-php.sh') }}
 
       - name: Build
+        env:
+          # static-php-cli looks up source versions on the GitHub API. Without a token, shared runners hit the rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build-php.sh ${{ matrix.php }}
 
       - uses: actions/upload-artifact@v4
