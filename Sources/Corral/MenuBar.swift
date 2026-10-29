@@ -332,7 +332,20 @@ struct Panel: View {
         .tint(.brand)
         .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0), value: model.snap.rows.map(\.id))
         .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0), value: model.error)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fit(height: $0) }
         .onAppear { model.refresh() }
+    }
+
+    /// MenuBarExtra grows its window but never shrinks it. Without this, the panel floats in empty space
+    /// after a banner closes or the filter hides sites. The panel is the key window that cannot become main.
+    private func fit(height: CGFloat) {
+        guard let window = NSApp.keyWindow, !window.canBecomeMain else { return }
+        var frame = window.frame
+        let newHeight = height + frame.height - window.contentLayoutRect.height
+        guard abs(newHeight - frame.height) > 0.5 else { return }
+        frame.origin.y += frame.height - newHeight // keep the top edge under the menu bar
+        frame.size.height = newHeight
+        window.setFrame(frame, display: true)
     }
 
     private var header: some View {
