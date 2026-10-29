@@ -211,6 +211,9 @@ struct CorralApp: App {
     @StateObject private var mail = MailServer()
 
     init() {
+        // AppKit controls (toolbar tabs, checkboxes, focus rings) use the system accent colour, which .tint cannot reach.
+        // Orange (1) in Corral's own defaults is the closest system accent to Color.brand. Other apps keep theirs.
+        UserDefaults.standard.set(1, forKey: "AppleAccentColor")
         Dock.update()
         Dock.followAppearance()
         let center = NotificationCenter.default
@@ -262,6 +265,15 @@ struct CorralApp: App {
     }
 }
 
+extension Color {
+    /// Corral orange (#DF5D09), from the icon. Each mode gets a shade that keeps text readable (4.5:1 or more).
+    static let brand = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(srgbRed: 0xF2 / 255, green: 0x76 / 255, blue: 0x2A / 255, alpha: 1)
+            : NSColor(srgbRed: 0xC7 / 255, green: 0x52 / 255, blue: 0x08 / 255, alpha: 1)
+    })
+}
+
 // MARK: - Panel
 
 struct Panel: View {
@@ -288,6 +300,7 @@ struct Panel: View {
             footer
         }
         .frame(width: 360)
+        .tint(.brand)
         .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0), value: model.snap.rows.map(\.id))
         .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0), value: model.error)
         .onAppear { model.refresh() }
@@ -310,7 +323,7 @@ struct Panel: View {
                 if model.busy != nil { ProgressView().controlSize(.small) }
                 Button(model.running ? "Stop" : "Start", action: model.toggleServices)
                     .buttonStyle(.borderedProminent)
-                    .tint(model.running ? .secondary : .accentColor)
+                    .tint(model.running ? .secondary : .brand)
                     .controlSize(.regular)
                     .disabled(model.busy != nil)
             }
@@ -326,7 +339,7 @@ struct Panel: View {
     private func banner(_ message: String, isError: Bool = true) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: isError ? "exclamationmark.triangle.fill" : "info.circle.fill")
-                .foregroundStyle(isError ? Color.red : Color.accentColor)
+                .foregroundStyle(isError ? Color.red : Color.brand)
             Text(message).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             Button { if isError { model.error = nil } else { model.notice = nil } } label: { Image(systemName: "xmark") }
@@ -334,7 +347,7 @@ struct Panel: View {
                 .accessibilityLabel("Dismiss")
         }
         .padding(10)
-        .background((isError ? Color.red : Color.accentColor).opacity(0.1), in: .rect(cornerRadius: 8))
+        .background((isError ? Color.red : Color.brand).opacity(0.1), in: .rect(cornerRadius: 8))
         .padding([.horizontal, .top], 14)
         .transition(.opacity)
     }

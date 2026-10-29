@@ -17,6 +17,7 @@ struct SettingsView: View {
             StatusLine(model: model)
         }
         .frame(width: 580, height: 460)
+        .tint(.brand)
         .onAppear { model.refresh() }
     }
 }

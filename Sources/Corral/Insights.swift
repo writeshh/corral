@@ -132,6 +132,7 @@ struct InsightsView: View {
             }
         }
         .frame(minWidth: 560, minHeight: 420)
+        .tint(.brand)
     }
 }
 
