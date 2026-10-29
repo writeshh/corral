@@ -391,3 +391,30 @@ import Testing
     let nginx = c.nginxConf(sites: sites, installed: ["8.4": "/x"])
     #expect(nginx.contains("unix:\(bigSock)") && nginx.contains("unix:\(c.run)/php8.4.sock"))
 }
+
+@Test func insightsDumpsAndLogs() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: tmp + "/sites/shop/storage/logs", withIntermediateDirectories: true)
+    try fm.createDirectory(atPath: tmp + "/sites/wp/wp-content", withIntermediateDirectories: true)
+    for f in ["shop/storage/logs/laravel-2026-10-28.log", "shop/storage/logs/laravel-2026-10-29.log", "shop/storage/logs/notes.txt", "wp/wp-content/debug.log"] {
+        fm.createFile(atPath: "\(tmp)/sites/\(f)", contents: nil)
+    }
+    let c = Corral(home: tmp + "/home")
+    c.config.parked = [tmp + "/sites"]
+    try c.mkdirs(c.logs)
+    fm.createFile(atPath: c.logs + "/nginx-error.log", contents: nil)
+    let shop = c.sites().first { $0.name == "shop" }!, wp = c.sites().first { $0.name == "wp" }!
+    #expect(c.logFiles(shop) == ["\(tmp)/sites/shop/storage/logs/laravel-2026-10-29.log", "\(tmp)/sites/shop/storage/logs/laravel-2026-10-28.log", c.logs + "/nginx-error.log"])
+    #expect(c.logFiles(wp) == ["\(tmp)/sites/wp/wp-content/debug.log", c.logs + "/nginx-error.log"])
+
+    try "first line\nsecond line\nthird line\n".write(toFile: c.logs + "/nginx-error.log", atomically: true, encoding: .utf8)
+    #expect(Corral.tail(c.logs + "/nginx-error.log", bytes: 15) == "third line\n")   // starts at a whole line
+    #expect(Corral.tail(c.logs + "/nginx-error.log").hasPrefix("first line"))
+
+    #expect(!c.nginxConf(sites: [shop], installed: ["8.4": "/x"]).contains("VAR_DUMPER"))
+    c.config.dumps = true
+    #expect(c.nginxConf(sites: [shop], installed: ["8.4": "/x"]).contains("fastcgi_param VAR_DUMPER_FORMAT server;"))
+    #expect(c.nginxConf(sites: [shop], installed: ["8.4": "/x"]).contains("fastcgi_param VAR_DUMPER_SERVER 127.0.0.1:9912;"))
+}

@@ -34,6 +34,7 @@ struct Snapshot: Sendable {
     var aliases: [String] = []
     var missing: [String] = []             // TLDs that do not resolve to Corral yet
     var herdFound = false
+    var dumps = false
 
     init() {}
 
@@ -55,6 +56,7 @@ struct Snapshot: Sendable {
         installed = missing.isEmpty
         tld = c.config.tld
         herdFound = Corral.herdFound
+        dumps = c.config.dumps
         aliases = c.config.aliases
         ownsTest = c.ownsTest
         home = c.home
@@ -203,6 +205,7 @@ final class Model: ObservableObject {
 
 struct CorralApp: App {
     @StateObject private var model = Model()
+    @StateObject private var insights = Insights()
 
     init() { NSApplication.shared.setActivationPolicy(.accessory) } // no Dock icon when run from a terminal
 
@@ -213,6 +216,8 @@ struct CorralApp: App {
         .menuBarExtraStyle(.window)
 
         Settings { SettingsView(model: model) }
+
+        Window("Insights", id: "insights") { InsightsView(model: model, insights: insights) }
     }
 }
 
@@ -221,6 +226,7 @@ struct CorralApp: App {
 struct Panel: View {
     @ObservedObject var model: Model
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @AppStorage("hideHerdMove") private var hideHerdMove = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -408,6 +414,7 @@ struct Panel: View {
                     .disabled(!model.running)
                 Button("Open Config Folder") { NSWorkspace.shared.open(URL(fileURLWithPath: model.snap.home)) }
                 Divider()
+                Button("Insights…") { NSApp.activate(); openWindow(id: "insights") }.keyboardShortcut("i")
                 Button("Settings…") { NSApp.activate(); openSettings() }.keyboardShortcut(",")
                 Divider()
                 Button("Quit Corral") { NSApp.terminate(nil) }.keyboardShortcut("q")

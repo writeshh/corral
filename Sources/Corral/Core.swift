@@ -10,6 +10,7 @@ struct Config: Codable, Equatable {
     var isolated: [String: String] = [:] // site name -> PHP version
     var proxies: [String: String] = [:]  // site name -> upstream URL
     var fpm: [String: FpmPool] = [:]     // PHP version -> pool settings, when not the defaults
+    var dumps = false                    // send dump() and dd() output to the Insights window
 
     init() {}
 
@@ -27,6 +28,7 @@ struct Config: Codable, Equatable {
         isolated = try c.decodeIfPresent([String: String].self, forKey: .isolated) ?? d.isolated
         proxies = try c.decodeIfPresent([String: String].self, forKey: .proxies) ?? d.proxies
         fpm = try c.decodeIfPresent([String: FpmPool].self, forKey: .fpm) ?? d.fpm
+        dumps = try c.decodeIfPresent(Bool.self, forKey: .dumps) ?? d.dumps
     }
 }
 
@@ -95,6 +97,7 @@ struct CorralError: LocalizedError {
 // @unchecked: the menu bar app calls Corral only from Model's serial work queue. The CLI is single-threaded.
 final class Corral: @unchecked Sendable {
     static let loopback = "127.0.0.2", httpPort = 8180, httpsPort = 8543, dnsPort = 53535
+    static let dumpPort = 9912 // Symfony VarDumper's server port, the default of `php artisan dump-server`
     static let daemonLabel = "dev.corral.network"
 
     let home: String
@@ -526,6 +529,7 @@ final class Corral: @unchecked Sendable {
                     fastcgi_param SERVER_PORT \(https ? 443 : 80);
                     \(https ? "fastcgi_param HTTPS on;" : "")
                     fastcgi_param REDIRECT_STATUS 200;
+                    \(config.dumps ? "fastcgi_param VAR_DUMPER_FORMAT server;\n            fastcgi_param VAR_DUMPER_SERVER 127.0.0.1:\(Self.dumpPort);" : "")
                     fastcgi_param HTTP_PROXY "";
                     fastcgi_buffers 16 64k;
                     fastcgi_buffer_size 64k;
@@ -1144,6 +1148,84 @@ final class Corral: @unchecked Sendable {
         if let cause = causes.first(where: { text.contains($0.0) }) { return cause.1 }
         if status == 0 { return "no response" }
         return status >= 500 ? "HTTP \(status)" : nil
+    }
+
+    // MARK: Insights
+
+    /// Log files for the Insights window: the site's Laravel and WordPress logs, then Corral's own.
+    func logFiles(_ site: Site?) -> [String] {
+        let fm = FileManager.default
+        func logsIn(_ dir: String) -> [String] {
+            ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".log") }.sorted(by: >).map { "\(dir)/\($0)" }
+        }
+        var out: [String] = []
+        if let site, site.proxy == nil {
+            out += logsIn(site.path + "/storage/logs")
+            out += [site.docroot + "/wp-content/debug.log"].filter { fm.fileExists(atPath: $0) }
+        }
+        return out + logsIn(logs).reversed()
+    }
+
+    /// The end of a file, at most `bytes` long, from the start of a line.
+    static func tail(_ path: String, bytes: UInt64 = 256 * 1024) -> String {
+        guard let h = FileHandle(forReadingAtPath: path) else { return "" }
+        defer { try? h.close() }
+        let size = (try? h.seekToEnd()) ?? 0
+        try? h.seek(toOffset: size > bytes ? size - bytes : 0)
+        let text = String(decoding: h.readDataToEndOfFile(), as: UTF8.self)
+        return size > bytes ? String(text.drop { $0 != "\n" }.dropFirst()) : text
+    }
+
+    struct Dump: Identifiable, Sendable {
+        let id = UUID()
+        let time: Date
+        let text: String
+        let source: String   // file:line of the dump() call
+        let request: String  // "GET /path", or the command line
+    }
+
+    /// Turns one VarDumper payload (base64 of serialize([$data, $context])) into text.
+    /// Swift cannot read PHP's serialized objects, so PHP does it with the site's own symfony/var-dumper.
+    /// The script loads only VarDumper classes, not the project's autoloader.
+    static let dumpDecoder = #"""
+    <?php
+    $raw = base64_decode(stream_get_contents(STDIN));
+    [, $context] = unserialize($raw, ['allowed_classes' => false]);
+    $file = $context['source']['file'] ?? '';
+    for ($dir = dirname($file); strlen($dir) > 1 && !is_dir("$dir/vendor/symfony/var-dumper"); $dir = dirname($dir));
+    $base = is_dir("$dir/vendor/symfony/var-dumper") ? "$dir/vendor/symfony/var-dumper/" : ($argv[1] ?? '');
+    spl_autoload_register(function ($class) use ($base) {
+        $prefix = 'Symfony\\Component\\VarDumper\\';
+        if (str_starts_with($class, $prefix) && is_file($f = $base . strtr(substr($class, strlen($prefix)), '\\', '/') . '.php')) require $f;
+    });
+    if (!class_exists(Symfony\Component\VarDumper\Cloner\Data::class)) { fwrite(STDERR, "symfony/var-dumper not found for $file"); exit(1); }
+    [$data] = unserialize($raw, ['allowed_classes' => [Symfony\Component\VarDumper\Cloner\Data::class, Symfony\Component\VarDumper\Cloner\Stub::class]]);
+    $dumper = new Symfony\Component\VarDumper\Dumper\CliDumper(null, null, 0);
+    $dumper->setColors(false);
+    $request = $context['request'] ?? null;
+    echo json_encode([
+        'text' => $dumper->dump($data, true),
+        'source' => $file === '' ? '' : $file . ':' . ($context['source']['line'] ?? ''),
+        'request' => $request ? trim(($request['method'] ?? '') . ' ' . ($request['uri'] ?? '')) : ($context['cli']['command_line'] ?? ''),
+        'time' => $context['timestamp'] ?? microtime(true),
+    ]);
+    """#
+
+    func decodeDump(_ payload: String) throws -> Dump {
+        let installed = phpVersions()
+        guard let v = globalPHP(installed), let fpm = installed[v] else { throw CorralError("No PHP to read the dump.") }
+        try mkdirs(conf)
+        let script = conf + "/dump-decoder.php", input = run + "/dump-\(UUID().uuidString)"
+        try Self.dumpDecoder.write(toFile: script, atomically: true, encoding: .utf8)
+        try mkdirs(run)
+        try payload.write(toFile: input, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: input) }
+        // A dump() call outside a site still needs VarDumper: use the first site that has it.
+        let fallback = sites().map { $0.path + "/vendor/symfony/var-dumper/" }.first { FileManager.default.fileExists(atPath: $0) } ?? ""
+        let out = try Self.sh("/bin/sh", ["-c", "exec \"$0\" \"$1\" \"$2\" < \"$3\"", cliPath(fpm), script, fallback, input])
+        guard let json = try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any] else { throw CorralError("Could not read a dump.") }
+        return Dump(time: Date(timeIntervalSince1970: json["time"] as? Double ?? Date().timeIntervalSince1970),
+                    text: json["text"] as? String ?? "", source: json["source"] as? String ?? "", request: json["request"] as? String ?? "")
     }
 
     // MARK: Helpers
