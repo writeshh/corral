@@ -79,8 +79,13 @@ final class Insights: ObservableObject {
 /// The selected log file and what the window shows of it.
 @MainActor
 final class LogState: ObservableObject {
-    @Published var site = ""      // "" = Corral's own logs only
-    @Published var file = ""
+    // Saved, so the choice survives a tab switch (SwiftUI makes a new LogsView) and a restart.
+    @Published var site = UserDefaults.standard.string(forKey: "logSite") ?? "" { // "" = Corral's own logs only
+        didSet { UserDefaults.standard.set(site, forKey: "logSite") }
+    }
+    @Published var file = UserDefaults.standard.string(forKey: "logFile") ?? "" {
+        didSet { UserDefaults.standard.set(file, forKey: "logFile") }
+    }
     @Published var picking = false // the site search popover is open
     @Published var query = ""
     @Published private(set) var text = ""
@@ -114,11 +119,12 @@ struct InsightsView: View {
     @ObservedObject var insights: Insights
     @ObservedObject var mail: MailServer
     @AppStorage("insightsTab") private var tab = "dumps"
+    @StateObject private var log = LogState() // here, not in LogsView, so a tab switch keeps Clear
 
     var body: some View {
         Group {
             switch tab {
-            case "logs": LogsView(model: model)
+            case "logs": LogsView(model: model, log: log)
             case "mail": MailView(model: model, mail: mail)
             default: DumpsView(model: model, insights: insights)
             }
@@ -230,7 +236,7 @@ struct DumpsView: View {
 
 struct LogsView: View {
     @ObservedObject var model: Model
-    @StateObject private var log = LogState()
+    @ObservedObject var log: LogState
 
     private var sites: [(name: String, host: String)] {
         [("", "Corral only")] + model.snap.rows.filter { $0.site.proxy == nil }.map { ($0.site.name, $0.host) }
@@ -306,11 +312,12 @@ struct LogsView: View {
                             .padding(10)
                         Color.clear.frame(height: 1).id("end")
                     }
+                    .onAppear { proxy.scrollTo("end") }
                     .onChange(of: log.text) { proxy.scrollTo("end") }
                 }
             }
         }
-        .onAppear { if log.file.isEmpty { log.file = files.first ?? "" }; log.follow() }
+        .onAppear { if !files.contains(log.file) { log.file = files.first ?? "" }; log.follow() }
         .onDisappear(perform: log.unfollow)
         .onChange(of: log.site) { log.file = files.first ?? "" }
         .onChange(of: log.file) { log.reload() }
