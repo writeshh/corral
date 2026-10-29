@@ -74,6 +74,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral sites` | List all sites with their URL, PHP version, and document root. |
 | `corral secure [site]` | Serve a site over HTTPS. |
 | `corral unsecure [site]` | Serve a site over HTTP. |
+| `corral secured` | List secured sites with the expiry date of each certificate. |
 | `corral use <version>` | Set the global PHP version, for example `8.4`. |
 | `corral isolate <version> [site]` | Pin a PHP version to one site. |
 | `corral unisolate [site]` | Use the global PHP version for a site again. |

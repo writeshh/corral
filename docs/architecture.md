@@ -103,6 +103,9 @@ Corral uses `/usr/bin/openssl` to create a local CA.
 `corral secure` signs a certificate for `site.internal` and `*.site.internal`.
 Site certificates are valid for 397 days. macOS rejects longer validity periods.
 The first `corral secure` adds the CA to your login keychain.
+`corral start` makes a new certificate for each secured site whose certificate is missing or expires within 30 days.
+Corral reads the expiry dates with the macOS Security framework, so the check takes less than a second.
+Herd and Valet do not renew site certificates.
 
 ## Coexistence with Laravel Herd
 
