@@ -230,7 +230,7 @@ struct CorralApp: App {
         MenuBarExtra {
             Panel(model: model)
         } label: {
-            Image(nsImage: Self.logo(size: 18, running: model.running)).accessibilityLabel("Corral")
+            Image(nsImage: Self.menuBarIcon(running: model.running)).accessibilityLabel(model.running ? "Corral, running" : "Corral, stopped")
         }
         .menuBarExtraStyle(.window)
 
@@ -239,33 +239,61 @@ struct CorralApp: App {
         Window("Insights", id: "insights") { InsightsView(model: model, insights: insights, mail: mail) }
     }
 
-    /// The Hex C from Resources/AppIcon.svg, drawn at any size. The site hexagon shows only while the services run.
-    /// A template image is black for macOS to colour. Otherwise the C uses the label colour and the site is Corral orange.
-    static func logo(size: CGFloat, running: Bool = true, template: Bool = false) -> NSImage {
-        let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { _ in
-            // The mark spans 34...222 x 22...234 on the SVG's 256 grid, stroke included. Scale it to 8/9 of the size and centre it.
-            let scale = size * 8 / 9 / 212, transform = NSAffineTransform()
-            transform.translateX(by: (size - 188 * scale) / 2 - 34 * scale, yBy: (size - 212 * scale) / 2 - 22 * scale)
-            transform.scale(by: scale)
-            let c = NSBezierPath(), site = NSBezierPath()
-            c.move(to: NSPoint(x: 207.67, y: 82))
-            for (x, y): (CGFloat, CGFloat) in [(128, 36), (48.33, 82), (48.33, 174), (128, 220), (207.67, 174)] { c.line(to: NSPoint(x: x, y: y)) }
-            site.move(to: NSPoint(x: 128, y: 98))
-            for (x, y): (CGFloat, CGFloat) in [(154, 113), (154, 143), (128, 158), (102, 143), (102, 113)] { site.line(to: NSPoint(x: x, y: y)) }
-            site.close()
-            c.transform(using: transform as AffineTransform)
-            site.transform(using: transform as AffineTransform)
-            c.lineWidth = 28 * scale
-            c.lineJoinStyle = .round
-            c.lineCapStyle = .round
-            (template ? NSColor.black : NSColor.labelColor).set()
-            c.stroke()
-            (template ? NSColor.black : NSColor(srgbRed: 0xDF / 255, green: 0x5D / 255, blue: 0x09 / 255, alpha: 1)).set()
-            if running { site.fill() }
+    /// The app icon's mark without its tile, for the menu bar: the Hex C, its stacked outlines and the orange site.
+    /// Ink on a light menu bar, cream on a dark one. Each outline erases what lies under it, because no tile colour
+    /// hides the copies behind it as in AppIcon.svg. Stopped services dim it.
+    static func menuBarIcon(running: Bool) -> NSImage {
+        NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
+            guard let cg = NSGraphicsContext.current?.cgContext else { return false }
+            let dark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let ink = dark ? CGColor(srgbRed: 0xEC / 255, green: 0xED / 255, blue: 0xE7 / 255, alpha: 1) : CGColor(srgbRed: 0x11 / 255, green: 0x11 / 255, blue: 0x11 / 255, alpha: 1)
+            // With its outlines the mark spans 34...222 x 22...264 on the SVG's 256 grid. Scale it to 17 pt high and centre it.
+            let scale: CGFloat = 17 / 242
+            cg.translateBy(x: (18 - 188 * scale) / 2 - 34 * scale, y: (18 - 242 * scale) / 2 - 22 * scale)
+            cg.scaleBy(x: scale, y: scale)
+            let c = CGMutablePath(), site = CGMutablePath()
+            c.addLines(between: [CGPoint(x: 207.67, y: 82), CGPoint(x: 128, y: 36), CGPoint(x: 48.33, y: 82),
+                                 CGPoint(x: 48.33, y: 174), CGPoint(x: 128, y: 220), CGPoint(x: 207.67, y: 174)])
+            site.addLines(between: [CGPoint(x: 128, y: 98), CGPoint(x: 154, y: 113), CGPoint(x: 154, y: 143),
+                                    CGPoint(x: 128, y: 158), CGPoint(x: 102, y: 143), CGPoint(x: 102, y: 113)])
+            site.closeSubpath()
+            cg.setAlpha(running ? 1 : 0.45)
+            cg.beginTransparencyLayer(auxiliaryInfo: nil)
+            for step in stride(from: 30, through: 0, by: -5) { // the farthest outline first, the solid C last
+                let shape = c.copy(strokingWithWidth: 28, lineCap: .round, lineJoin: .round, miterLimit: 10,
+                                   transform: CGAffineTransform(translationX: 0, y: CGFloat(step)))
+                cg.setBlendMode(.clear)
+                cg.addPath(shape)
+                cg.fillPath()
+                cg.setBlendMode(.normal)
+                cg.addPath(shape)
+                if step == 0 {
+                    cg.setFillColor(ink)
+                    cg.fillPath()
+                } else {
+                    cg.setStrokeColor(ink)
+                    cg.setLineWidth(2.6) // 1.3 in the SVG, doubled to stay visible at 18 pt
+                    cg.strokePath()
+                }
+            }
+            cg.addPath(site)
+            cg.setFillColor(CGColor(srgbRed: 0xDF / 255, green: 0x5D / 255, blue: 0x09 / 255, alpha: 1))
+            cg.fillPath()
+            cg.endTransparencyLayer()
             return true
         }
-        image.isTemplate = template
-        return image
+    }
+
+    /// The app icon tile at any size: AppIcon in light mode, AppIcon-Dark in dark mode, for the appearance it draws in.
+    /// The .icns art keeps a 100/1024 margin for the shadow, so the drawing crops it and the tile fills the size.
+    /// Stopped services dim it.
+    static func appIcon(size: CGFloat, running: Bool = true) -> NSImage {
+        NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            let dark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let icon = Bundle.main.image(forResource: dark ? "AppIcon-Dark" : "AppIcon") ?? NSApplication.shared.applicationIconImage!
+            icon.draw(in: rect.insetBy(dx: -size * 100 / 824, dy: -size * 100 / 824), from: .zero, operation: .sourceOver, fraction: running ? 1 : 0.45)
+            return true
+        }
     }
 }
 
@@ -353,7 +381,7 @@ struct Panel: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(nsImage: CorralApp.logo(size: 28))
+                Image(nsImage: CorralApp.appIcon(size: 30))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Corral").font(.headline)
                     Text(model.busy.map { "\($0)…" } ?? (model.running ? "Running" : "Stopped"))
