@@ -268,7 +268,10 @@ final class Corral: @unchecked Sendable {
         #if !arch(arm64)
         throw CorralError("Corral's PHP builds are for Apple silicon only. Use Homebrew PHP on this Mac.")
         #endif
-        guard let manifestText = try? sh("/usr/bin/curl", ["-fsSL", phpSource + "/manifest.json"]) else {
+        // The tarball names carry the version, so a cached copy is always right. manifest.json changes in place, and
+        // GitHub's release CDN serves an old copy for a while after an update. A query string skips that cache.
+        let fresh = phpSource.hasPrefix("http") ? "?t=\(Int(Date().timeIntervalSince1970))" : ""
+        guard let manifestText = try? sh("/usr/bin/curl", ["-fsSL", "-H", "Cache-Control: no-cache", phpSource + "/manifest.json" + fresh]) else {
             throw CorralError("Corral could not read the PHP build list at \(phpSource)/manifest.json.")
         }
         let manifest = (try? JSONSerialization.jsonObject(with: Data(manifestText.utf8))) as? [String: [String: String]] ?? [:]
