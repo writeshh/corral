@@ -186,12 +186,17 @@ struct DumpsView: View {
             } else {
                 List(insights.dumps) { dump in
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text(dump.request).font(.caption.weight(.semibold)).lineLimit(1)
+                        HStack(spacing: 6) {
+                            request(dump.request)
                             Spacer()
                             Text(dump.time.formatted(date: .omitted, time: .standard)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
-                        Text((dump.source as NSString).abbreviatingWithTildeInPath).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                        if let colon = dump.source.lastIndex(of: ":") {
+                            let file = String(dump.source[..<colon])
+                            Button((dump.source as NSString).abbreviatingWithTildeInPath) { NSWorkspace.shared.open(URL(fileURLWithPath: file)) }
+                                .buttonStyle(.link).font(.caption).lineLimit(1).truncationMode(.head)
+                                .help("Open \((file as NSString).lastPathComponent)")
+                        }
                         Text(dump.styled).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(8)
                             .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 8))
@@ -199,6 +204,19 @@ struct DumpsView: View {
                     .padding(.vertical, 6)
                 }
             }
+        }
+    }
+
+    /// "GET /orders" as a method badge and a path. A command line (dump from artisan or a script) gets a terminal icon.
+    @ViewBuilder private func request(_ request: String) -> some View {
+        let parts = request.split(separator: " ", maxSplits: 1).map(String.init)
+        if parts.count == 2, ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].contains(parts[0]) {
+            Text(parts[0]).font(.caption2.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 1)
+                .background(.quaternary, in: .capsule)
+            Text(parts[1]).font(.caption.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+        } else {
+            Label(request.isEmpty ? "Unknown request" : request, systemImage: "terminal")
+                .font(.caption.weight(.semibold)).lineLimit(1).truncationMode(.middle)
         }
     }
 
