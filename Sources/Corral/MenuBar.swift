@@ -230,7 +230,7 @@ struct CorralApp: App {
         MenuBarExtra {
             Panel(model: model)
         } label: {
-            Image(nsImage: Self.menuBarIcon(running: model.running)).accessibilityLabel("Corral")
+            Image(nsImage: Self.logo(size: 18, running: model.running)).accessibilityLabel("Corral")
         }
         .menuBarExtraStyle(.window)
 
@@ -239,12 +239,13 @@ struct CorralApp: App {
         Window("Insights", id: "insights") { InsightsView(model: model, insights: insights, mail: mail) }
     }
 
-    /// The Hex C from Resources/AppIcon.svg as a template image. The site hexagon shows only while the services run.
-    static func menuBarIcon(running: Bool) -> NSImage {
-        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
-            // The mark spans 34...222 x 22...234 on the SVG's 256 grid, stroke included. Scale it to 16 pt high and centre it.
-            let scale = 16.0 / 212, transform = NSAffineTransform()
-            transform.translateX(by: (18 - 188 * scale) / 2 - 34 * scale, yBy: 1 - 22 * scale)
+    /// The Hex C from Resources/AppIcon.svg, drawn at any size. The site hexagon shows only while the services run.
+    /// A template image is black for macOS to colour. Otherwise the C uses the label colour and the site is Corral orange.
+    static func logo(size: CGFloat, running: Bool = true, template: Bool = false) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { _ in
+            // The mark spans 34...222 x 22...234 on the SVG's 256 grid, stroke included. Scale it to 8/9 of the size and centre it.
+            let scale = size * 8 / 9 / 212, transform = NSAffineTransform()
+            transform.translateX(by: (size - 188 * scale) / 2 - 34 * scale, yBy: (size - 212 * scale) / 2 - 22 * scale)
             transform.scale(by: scale)
             let c = NSBezierPath(), site = NSBezierPath()
             c.move(to: NSPoint(x: 207.67, y: 82))
@@ -257,12 +258,13 @@ struct CorralApp: App {
             c.lineWidth = 28 * scale
             c.lineJoinStyle = .round
             c.lineCapStyle = .round
-            NSColor.black.set()
+            (template ? NSColor.black : NSColor.labelColor).set()
             c.stroke()
+            (template ? NSColor.black : NSColor(srgbRed: 0xDF / 255, green: 0x5D / 255, blue: 0x09 / 255, alpha: 1)).set()
             if running { site.fill() }
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = template
         return image
     }
 }
@@ -351,9 +353,7 @@ struct Panel: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: "circle.hexagongrid.fill")
-                    .font(.title2)
-                    .foregroundStyle(.tint)
+                Image(nsImage: CorralApp.logo(size: 28))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Corral").font(.headline)
                     Text(model.busy.map { "\($0)…" } ?? (model.running ? "Running" : "Stopped"))
