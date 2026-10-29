@@ -26,14 +26,26 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Each site also answers `<site>.test`. `corral takeover` sends `.test` to Corral, and `corral handback` gives it back to Laravel Herd. The menu bar app has the same switch.
 - `corral import:herd` copies the parked folders, links, secured sites, and global PHP version from Laravel Herd.
 - `corral start` renews site certificates that expire within 30 days. `corral secured` lists the expiry date of each certificate.
+- Settings window (⌘,) with tabs for General, PHP, Sites, Certificates, and About. Sites lists parked folders, links, and proxies, with add and remove buttons.
+- "Open Corral at login" switch. The app starts the services again if they ran before, and restarts a service that stops.
+- Extra TLDs (`aliases` in `config.json`, Settings > General) and extra names for each site (`domains` in `.corral.json`).
+- PHP and PHP-FPM settings for each version in Settings > PHP. Corral checks the values with PHP and `php-fpm -t` before it saves them.
+- `php` values in `.corral.json` for one site. The site gets its own PHP-FPM pool.
+- `corral migrate:herd` and "Move from Herd…" in the app: copy the Herd setup, quit Herd, take over `.test`, and check each site. `--dry-run` shows the changes first. `--undo` gives `.test` back.
+- Insights window (⌘I) with dumps from `dump()` and `dd()`, site and service logs, and caught mail on `127.0.0.1:2525`.
+- "Send Mail to Corral" in the menu of a Laravel site. It changes the `MAIL_` values in `.env` and keeps a backup.
 
 ### Changed
 
+- New installations use `.test` as the main TLD, like Herd. A `config.json` from an earlier build keeps `.internal`, with `.test` as the second TLD.
+- `corral install` writes one resolver file for each TLD in use. `corral uninstall` removes each resolver file that points to Corral.
+- `corral import:herd` also copies the PHP version of each site, proxies, and `php.ini` values.
 - `corral php:install` uses Corral's own PHP builds, with a SHA-256 checksum check. The builds include mysqli, intl, and sodium, so WordPress works. `scripts/build-php.sh` and `.github/workflows/php.yml` make the builds.
 - The menu bar app is now a panel with a site list, service status, inline errors, and an empty state. Slow work, such as a PHP download, runs in the background, so the panel does not freeze.
 
 ### Fixed
 
+- PHP-FPM starts again after its master process stopped. Before, the old workers kept the socket and the start failed.
 - The default `php.ini` for Corral's PHP builds uses the values of Laravel Herd: `memory_limit` 1024M, `max_execution_time` 600, and `output_buffering` 4096. Before, early deprecation notices could break redirects and hide the real HTTP status.
 - A Herd resolver file for the same domain no longer counts as a Corral installation.
 - `corral uninstall` removes only resolver files that point to Corral.

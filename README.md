@@ -1,7 +1,7 @@
 # Corral
 
 Corral is a local PHP development environment for macOS.
-It serves each project folder at its own domain, for example `http://blog.internal`.
+It serves each project folder at its own domain, for example `http://blog.test`.
 Corral is a menu bar app and a command-line tool in one binary.
 
 Corral does not collect telemetry.
@@ -9,14 +9,17 @@ Corral connects to the internet only when you install a PHP version.
 
 ## Features
 
-- Serve every subfolder of a "parked" folder as `<folder>.internal`.
+- Serve every subfolder of a "parked" folder as `<folder>.test`.
 - Link a single folder to a domain name.
 - Serve sites over HTTPS with certificates from a local certificate authority (CA).
 - Use one global PHP version, or pin a different version to a site.
-- Answer subdomains, for example `api.blog.internal`.
+- Answer subdomains, for example `api.blog.test`.
 - Control everything from the menu bar or from the `corral` command.
 - Include nginx and dnsmasq. Install PHP with one command.
-- Run next to Laravel Herd without conflicts.
+- Move from Laravel Herd in one step, or run next to Herd.
+- Change PHP and PHP-FPM settings in a settings window.
+- See `dump()` output, logs, and caught mail in the Insights window. Herd has these features only in Herd Pro.
+- Open at login, and restart a service that stops.
 
 ## Requirements
 
@@ -65,11 +68,11 @@ Each subfolder of `~/Corral` becomes a site.
 
 | Command | Effect |
 |---|---|
-| `corral park [dir]` | Serve each subfolder of `dir` as `<folder>.internal`. |
+| `corral park [dir]` | Serve each subfolder of `dir` as `<folder>.test`. |
 | `corral forget [dir]` | Stop serving the subfolders of `dir`. |
-| `corral link [name]` | Serve the current folder as `<name>.internal`. |
+| `corral link [name]` | Serve the current folder as `<name>.test`. |
 | `corral unlink [name]` | Remove a linked site. |
-| `corral proxy <name> <url>` | Serve a development server as `<name>.internal`. |
+| `corral proxy <name> <url>` | Serve a development server as `<name>.test`. |
 | `corral unproxy <name>` | Remove a proxy site. |
 | `corral sites` | List all sites with their URL, PHP version, and document root. |
 | `corral secure [site]` | Serve a site over HTTPS. |
@@ -90,7 +93,8 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral install` | Configure DNS and ports 80 and 443. |
 | `corral takeover` | Send `.test` to Corral in place of Laravel Herd. |
 | `corral handback` | Give `.test` back to Laravel Herd. |
-| `corral import:herd` | Copy the parked folders, links, secured sites, and global PHP version from Laravel Herd. |
+| `corral migrate:herd` | Move from Laravel Herd. Add `--dry-run` to see the changes first, or `--undo` to give `.test` back to Herd. |
+| `corral import:herd` | Copy the settings from Laravel Herd only. This is the first part of `migrate:herd`. |
 | `corral uninstall` | Remove the system configuration. |
 
 If you do not give a site name, Corral uses the site in the current folder.
@@ -113,6 +117,15 @@ Each PHP version that Corral installed has a `php.ini` file in `~/Library/Applic
 Corral keeps your changes to this file when you update the version.
 Run `corral restart` after a change.
 
+Settings > PHP shows the common `php.ini` values and the PHP-FPM settings of each version:
+
+- `memory_limit`, the maximum upload size, `max_execution_time`, `max_input_vars`, `display_errors`, `error_reporting`, `date.timezone`, OPcache, and `output_buffering`
+- The process manager, the maximum number of processes, the request timeout, and the slow log
+
+Corral checks the values with PHP and with `php-fpm -t` before it saves them.
+If a value is not valid, Corral shows the PHP message and changes nothing.
+Then Corral reloads PHP-FPM. Requests that run at that time can finish.
+
 ## Menu bar app
 
 Click the Corral icon in the menu bar to open the panel. The panel shows:
@@ -124,6 +137,29 @@ Click the Corral icon in the menu bar to open the panel. The panel shows:
 - Errors and setup steps, directly in the panel
 
 Right-click a site, or hold the pointer over it and click the "..." button, to show the site actions.
+
+The "..." menu at the bottom of the panel opens these windows:
+
+- **Settings** (⌘,): open at login, domains, `.test` and Herd, PHP versions and settings, parked folders, links, proxies, certificates, and licences.
+- **Insights** (⌘I): dumps, logs, and mail. See [Insights](#insights).
+
+### Background service
+
+When you start the services, Corral remembers it.
+Then the app starts the services again when it opens, for example after a restart of the Mac.
+The app also checks the services every 15 seconds and starts a service that stopped. The panel shows each restart.
+`corral stop` turns this off until the next `corral start`.
+To open Corral at login, turn on Settings > General > "Open Corral at login".
+
+## Insights
+
+Insights shows information from your sites. All of it stays on your Mac.
+
+- **Dumps**: turn on "Send dump() to Corral". Then `dump()` and `dd()` in Laravel and Symfony sites show in Insights, not in the page. Corral uses the server mode of Symfony VarDumper on port 9912. Insights keeps the newest 1000 dumps.
+- **Logs**: the Laravel logs in `storage/logs`, the WordPress `wp-content/debug.log`, and the nginx and PHP-FPM logs. Insights reads the file again every 2 seconds.
+- **Mail**: turn on "Catch mail on 127.0.0.1:2525". Corral receives each message that a site sends with SMTP to this address, and keeps the newest 1000. Click a message to preview it. For a Laravel site, click "Send Mail to Corral" in the site menu. Corral then changes the `MAIL_` values in `.env`, and keeps the original file as `.env.corral.bak`.
+
+Insights does not show database queries.
 
 ## Document root
 
@@ -141,60 +177,53 @@ This works for most PHP frameworks.
 
 Corral finds WordPress when the document root contains `wp-load.php` or `wp-config.php`.
 For WordPress sites, Corral adds the nginx rules for multisite in subdirectories.
-Multisite with subdomains also works, because each site answers `*.<site>.internal`.
+Multisite with subdomains also works, because each site answers `*.<site>.test`.
 
-## Use Corral next to Laravel Herd
+## Move from Laravel Herd
 
-Each site has two names: `<site>.internal` and `<site>.test`.
-The `.internal` names always go to Corral.
-The `.test` names go to Herd, until you run `corral takeover`.
-
-Sites that you moved from Herd often keep their `.test` URL, for example in the WordPress `siteurl` or in `APP_URL` in `.env`.
-These sites redirect to `.test`. To open them with Corral, send `.test` to Corral:
-
-1. Quit Herd. Corral does not take `.test` while Herd runs, because Herd takes it back.
-2. Send `.test` to Corral. macOS asks for your administrator password:
-
-   ```sh
-   corral takeover
-   ```
-
-3. For sites that use `https://`, run `corral secure <site>` one time.
-
-To use Herd again:
-
-1. Give `.test` back to Herd. Corral restores the resolver file of Herd from its backup:
-
-   ```sh
-   corral handback
-   ```
-
-2. Start Herd.
-
-To copy your Herd setup to Corral, run:
+To move all your Herd sites to Corral, run:
 
 ```sh
-corral import:herd
+corral migrate:herd --dry-run
+corral migrate:herd
 ```
 
-The command copies these settings. It reads the Herd files and does not change them.
+The first command shows the changes and changes nothing.
+The second command does these steps. It asks before it quits Herd or removes the Herd login item.
 
-- Parked folders
-- Links, for example aliases such as `rfsudev`
-- Secured sites. Corral makes its own certificates for these sites. The first certificate asks you to trust the Corral CA.
-- The global PHP version. If the version is not installed, Corral downloads it.
+1. It copies the parked folders and links.
+2. It makes Corral certificates for the sites that Herd serves over HTTPS. The first certificate asks you to trust the Corral CA.
+3. It copies the global PHP version, the PHP version of each site, and the proxies. It downloads each PHP version that is missing.
+4. It copies the `php.ini` values of Herd into the PHP builds of Corral. Lines that work only in Herd stay out.
+5. It quits Herd, and it can remove Herd from your login items.
+6. It sends `.test` to Corral, starts the services, and opens each site.
+7. It shows each site that does not work, with the likely cause. For example: a missing database, a wrong database password, or missing Composer packages.
 
-You can run the command again. It adds only the settings that Corral does not have.
+The menu bar app shows the same steps when it finds Herd. The "..." menu also has "Move from Herd…".
+Corral reads the Herd files and does not change them. Corral does not manage Node.js versions.
 
-`corral status` shows which tool gets `.test`. The menu bar app has the same switch in the "..." menu.
-`corral uninstall` also gives `.test` back to Herd.
+To use Herd again, run this command, then start Herd:
 
+```sh
+corral migrate:herd --undo
+```
+
+### Use Corral next to Laravel Herd
+
+New installations use `.test`, like Herd. Only one tool can get `.test` at a time.
+To run both tools, give Corral a second TLD in Settings > General, for example `internal`.
+Each site then also answers `<site>.internal`, and these names always go to Corral.
+
+`corral takeover` sends `.test` to Corral, and `corral handback` gives it back to Herd.
+Quit Herd first, because Herd takes `.test` back while it runs.
+`corral status` shows which tool gets `.test`.
 Herd and Corral do not use the same IP addresses or ports, so both can run at the same time.
-Only the `.test` names can go to one tool at a time.
+
+A `config.json` from an earlier Corral build keeps `.internal` as the main TLD, with `.test` as the second TLD.
 
 ## Development servers and portless
 
-A proxy site sends requests for `<name>.internal` to a development server, for example Next.js or Vite.
+A proxy site sends requests for `<name>.test` to a development server, for example Next.js or Vite.
 WebSocket connections also go through the proxy, so hot reload works.
 You can use `corral secure <name>` to serve a proxy site over HTTPS.
 
@@ -210,7 +239,8 @@ Corral can serve the same app without a port:
 corral proxy shop https://shop.localhost:1355
 ```
 
-Then open `http://shop.internal`.
+Then open `http://shop.test`.
+If Herd has `.test`, give Corral a second TLD, for example `internal`, and open `http://shop.internal`.
 For `.localhost` URLs, Corral connects to `127.0.0.1` and sends the original name.
 portless needs the name to select the app.
 
@@ -221,7 +251,9 @@ To change the settings of one site, add a `.corral.json` file to the site folder
 ```json
 {
   "root": "dist",
-  "nginx": "add_header X-Frame-Options DENY;"
+  "nginx": "add_header X-Frame-Options DENY;",
+  "domains": ["shop.local"],
+  "php": { "memory_limit": "2048M" }
 }
 ```
 
@@ -229,6 +261,8 @@ To change the settings of one site, add a `.corral.json` file to the site folder
 |---|---|
 | `root` | The document root, relative to the site folder |
 | `nginx` | Extra nginx directives for the server block of the site |
+| `domains` | More names for the site. Run `corral install` after you add a new TLD. |
+| `php` | `php.ini` values for this site only. The site gets its own small PHP-FPM pool. |
 
 Run `corral restart` after a change.
 If the file is not valid JSON, `corral start` shows an error.
@@ -246,9 +280,12 @@ Corral keeps its state in `~/Library/Application Support/Corral`:
 | `certs/` | Local CA and site certificates |
 | `php/` | PHP versions that Corral installed |
 | `bin/` | `php` (global version) and `php84`-style commands for each version |
+| `mail/` | Mail that Corral caught, as `.eml` files |
 
-You can change the domain suffix with the `tld` key in `config.json`.
-After a change, run `corral uninstall` and `corral install` again.
+To change the TLD, use Settings > General. The main TLD is in the URLs.
+Each extra TLD gives every site one more name.
+Corral then updates `/etc/resolver` and asks for your administrator password.
+Certificates get the new names the next time the services start.
 
 These environment variables change the defaults:
 
@@ -276,7 +313,9 @@ These environment variables change the defaults:
 
 - Corral does not include Composer or Node.js.
 - Corral has special rules for WordPress only. Use `.corral.json` for frameworks such as Magento.
-- Corral does not manage databases or mail.
+- Corral does not manage databases.
+- Insights does not show database queries.
+- The PHP builds do not include Xdebug, so Corral has no debug pool yet.
 
 ## Documentation
 
