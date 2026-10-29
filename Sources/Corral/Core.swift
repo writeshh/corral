@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 struct Config: Codable, Equatable {
     var tld = "test"                     // main TLD: URLs and certificate file names use it
@@ -1119,27 +1120,50 @@ final class Corral: @unchecked Sendable {
 
     /// Requests each PHP site through nginx and names the likely cause of an error. Herd and Corral share the
     /// same databases, so most failures are a database or a `composer install` that Herd's copy had and this one lacks.
-    /// Requests go to the address that the browser uses, so the check also covers the pf redirect. Some pf rules
-    /// (for example from Herd) drop direct connections to nginx's own ports.
+    /// Requests run in parallel, at most one for each FPM worker, because a request that waits in the pool queue can time out.
     func checkSites() -> [(site: String, problem: String)] {
         let installed = phpVersions()
-        var out: [(String, String)] = []
-        for site in sites() where site.proxy == nil {
-            let port = config.secured.contains(site.name) ? 443 : 80, host = host(site)
-            let log = php(for: site, installed).map { "\(logs)/php\($0)-fpm.log" }
-            let logStart = log.flatMap { try? FileManager.default.attributesOfItem(atPath: $0)[.size] as? UInt64 } ?? 0
-            let body = FileManager.default.temporaryDirectory.appendingPathComponent("corral-check-\(UUID().uuidString)").path
-            defer { try? FileManager.default.removeItem(atPath: body) }
-            let status = (try? sh("/usr/bin/curl", ["-sk", "--max-time", "20", "-o", body, "-w", "%{http_code}",
-                                                    "--connect-to", "\(host):\(port):\(Self.loopback):\(port)", url(site).absoluteString])) ?? "000"
-            var text = (try? String(contentsOfFile: body, encoding: .utf8)) ?? ""
-            if let log, let h = FileHandle(forReadingAtPath: log) {
-                try? h.seek(toOffset: logStart)
-                text += String(decoding: h.readDataToEndOfFile(), as: UTF8.self)
+        let list = sites().filter { $0.proxy == nil }
+        let width = (config.fpm.values.map(\.maxChildren) + [FpmPool().maxChildren]).min()!
+        let state = OSAllocatedUnfairLock(initialState: (next: 0, results: [Int: (status: Int, text: String)]()))
+        DispatchQueue.concurrentPerform(iterations: max(1, min(width, list.count))) { _ in
+            while let i = state.withLock({ s -> Int? in
+                guard s.next < list.count else { return nil }
+                defer { s.next += 1 }
+                return s.next
+            }) {
+                let result = request(list[i], log: nil)
+                state.withLock { s in s.results[i] = result }
             }
-            if let problem = Self.diagnose(status: Int(status) ?? 0, text) { out.append((site.name, problem)) }
         }
-        return out
+        let results = state.withLock { $0.results }
+        return list.indices.compactMap { i in
+            var (status, text) = results[i]!
+            // A PHP error page without a cause often has the cause in the FPM log. Parallel requests mix
+            // their lines in that log, so request the site again alone to read only its own lines.
+            if Self.diagnose(status: status, text) == "HTTP \(status)" {
+                (status, text) = request(list[i], log: php(for: list[i], installed).map { "\(logs)/php\($0)-fpm.log" })
+            }
+            return Self.diagnose(status: status, text).map { (list[i].name, $0) }
+        }
+    }
+
+    /// One request to a site: the HTTP status (0 for no response) and the page, plus the new lines of `log`.
+    /// It goes to the address that the browser uses, so the check also covers the pf redirect. Some pf rules
+    /// (for example from Herd) drop direct connections to nginx's own ports.
+    private func request(_ site: Site, log: String?) -> (status: Int, text: String) {
+        let port = config.secured.contains(site.name) ? 443 : 80, host = host(site)
+        let logStart = log.flatMap { try? FileManager.default.attributesOfItem(atPath: $0)[.size] as? UInt64 } ?? 0
+        let body = FileManager.default.temporaryDirectory.appendingPathComponent("corral-check-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: body) }
+        let status = (try? sh("/usr/bin/curl", ["-sk", "--max-time", "20", "-o", body, "-w", "%{http_code}",
+                                                "--connect-to", "\(host):\(port):\(Self.loopback):\(port)", url(site).absoluteString])) ?? "000"
+        var text = (try? String(contentsOfFile: body, encoding: .utf8)) ?? ""
+        if let log, let h = FileHandle(forReadingAtPath: log) {
+            try? h.seek(toOffset: logStart)
+            text += String(decoding: h.readDataToEndOfFile(), as: UTF8.self)
+        }
+        return (Int(status) ?? 0, text)
     }
 
     static func diagnose(status: Int, _ text: String) -> String? {
