@@ -512,6 +512,7 @@ final class Corral: @unchecked Sendable {
     /// Idempotent: writes configs, starts whatever is down, reloads nginx if it's already up.
     func start() throws {
         try writeConfigs()
+        try renewCertificates()
         let installed = phpVersions()
         if installed.isEmpty { throw CorralError("No PHP found. Install it with: corral php:install \(Self.phpChoices[0])") }
         for v in neededPHP(installed) where !alive("\(run)/php\(v)-fpm.pid") {
@@ -578,7 +579,7 @@ final class Corral: @unchecked Sendable {
     }
 
     /// One certificate for all of a site's names. Files use the first name.
-    func makeCert(_ hosts: [String]) throws {
+    func makeCert(_ hosts: [String], days: Int = 397) throws {
         let host = hosts[0], base = "\(certs)/\(host)"
         try """
         basicConstraints = CA:FALSE
@@ -589,10 +590,44 @@ final class Corral: @unchecked Sendable {
         try sh("/usr/bin/openssl", ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=\(host)",
                                     "-keyout", base + ".key", "-out", base + ".csr"])
         // 397 days: Apple rejects longer-lived leaf certificates (Valet's Site.php has the same cap).
-        try sh("/usr/bin/openssl", ["x509", "-req", "-sha256", "-days", "397", "-in", base + ".csr",
+        try sh("/usr/bin/openssl", ["x509", "-req", "-sha256", "-days", "\(days)", "-in", base + ".csr",
                                     "-CA", caPem, "-CAkey", certs + "/CorralCA.key",
                                     "-set_serial", "0x" + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16),
                                     "-extfile", base + ".ext", "-out", base + ".crt"])
+    }
+
+    /// Certificate file of a secured site. Files use the first name (`<site>.<tld>`).
+    func certPath(_ site: Site) -> String { "\(certs)/\(host(site)).crt" }
+
+    /// The expiry date of a PEM certificate. Read in-process: one openssl call per site made `start` seconds slower.
+    func certExpiry(_ path: String) -> Date? {
+        guard let pem = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        let parts = pem.components(separatedBy: "-----")
+        guard parts.count > 2,
+              let der = Data(base64Encoded: parts[2], options: .ignoreUnknownCharacters),
+              let cert = SecCertificateCreateWithData(nil, der as CFData),
+              let values = SecCertificateCopyValues(cert, [kSecOIDX509V1ValidityNotAfter] as CFArray, nil) as? [String: Any],
+              let field = values[kSecOIDX509V1ValidityNotAfter as String] as? [String: Any],
+              let seconds = field[kSecPropertyKeyValue as String] as? NSNumber else { return nil }
+        return Date(timeIntervalSinceReferenceDate: seconds.doubleValue)
+    }
+
+    /// True when the certificate is missing, unreadable, or expires within `days`.
+    func certNeedsRenewal(_ path: String, days: Int = 30) -> Bool {
+        guard let expiry = certExpiry(path) else { return true }
+        return expiry < Date().addingTimeInterval(TimeInterval(days * 86400))
+    }
+
+    /// Re-issues each secured site's certificate that is missing or expires within 30 days.
+    /// Herd and Valet never do this, so their sites break after a year. No prompt: the CA is already trusted.
+    /// ponytail: runs on `corral start` only. Add a daily timer if Corral ever runs for months without a restart.
+    @discardableResult
+    func renewCertificates(within days: Int = 30) throws -> [String] {
+        let due = sites().filter { config.secured.contains($0.name) && certNeedsRenewal(certPath($0), days: days) }
+        guard !due.isEmpty else { return [] }
+        try ensureCA()
+        for site in due { try makeCert(hostnames(site)) }
+        return due.map(\.name)
     }
 
     func setSecure(_ site: Site, _ on: Bool) throws {

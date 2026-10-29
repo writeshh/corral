@@ -16,6 +16,7 @@ enum CLI {
       unproxy <name>               remove a proxy site
       sites                        list sites
       secure [site] | unsecure [site]
+      secured                      list secured sites with the expiry date of each certificate
       use <ver>                    set the global PHP version
       isolate <ver> [site] | unisolate [site]
       php:list                     installed PHP versions
@@ -100,6 +101,13 @@ enum CLI {
                 for s in corral.sites() {
                     let detail = s.proxy == nil ? "php \(corral.php(for: s, installed) ?? "-")\t\(s.docroot)" : "proxy\t\(s.path)"
                     print("\(corral.url(s).absoluteString)\t\(detail)")
+                }
+            case "secured":
+                let renewed = try corral.renewCertificates()
+                if !renewed.isEmpty { print("Renewed: \(renewed.joined(separator: ", "))") }
+                for s in corral.sites() where corral.config.secured.contains(s.name) {
+                    let expiry = corral.certExpiry(corral.certPath(s)).map { $0.formatted(date: .abbreviated, time: .omitted) }
+                    print("\(corral.host(s))\texpires \(expiry ?? "unknown")")
                 }
             case "secure", "unsecure":
                 let site = try corral.site(named: arg1)

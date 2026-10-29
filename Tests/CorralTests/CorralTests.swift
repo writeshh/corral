@@ -236,3 +236,31 @@ import Testing
 
     #expect(throws: CorralError.self) { try c.installPHP("7.4") } // not in the manifest
 }
+
+@Test func certificateRenewal() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: tmp + "/sites/shop", withIntermediateDirectories: true)
+    try fm.createDirectory(atPath: tmp + "/sites/blog", withIntermediateDirectories: true)
+    let c = Corral(home: tmp + "/home")
+    c.config.parked = [tmp + "/sites"]
+    c.config.secured = ["shop", "blog"]
+    try c.ensureCA()
+    let shop = c.sites().first { $0.name == "shop" }!, blog = c.sites().first { $0.name == "blog" }!
+
+    try c.makeCert(c.hostnames(shop), days: 5)     // expires soon
+    try c.makeCert(c.hostnames(blog))              // 397 days
+    #expect(c.certNeedsRenewal(c.certPath(shop)))
+    #expect(!c.certNeedsRenewal(c.certPath(blog)))
+    #expect(c.certNeedsRenewal(tmp + "/missing.crt"))
+    let before = c.certExpiry(c.certPath(blog))
+
+    #expect(try c.renewCertificates() == ["shop"])  // only the one that is due
+    #expect(!c.certNeedsRenewal(c.certPath(shop)))
+    #expect(c.certExpiry(c.certPath(blog)) == before)
+    #expect(try c.renewCertificates().isEmpty)     // nothing left to do
+
+    try fm.removeItem(atPath: c.certPath(blog))     // a lost certificate comes back too
+    #expect(try c.renewCertificates() == ["blog"])
+}
