@@ -397,6 +397,16 @@ struct AboutTab: View {
     var body: some View {
         Form {
             Section {
+                HStack(spacing: 14) {
+                    Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 64, height: 64) // follows dark mode
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Corral").font(.title2.weight(.semibold))
+                        Text("Local PHP sites on your Mac.").foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            Section {
                 LabeledContent("Version", value: version)
                 LabeledContent("Telemetry", value: "None")
             }
