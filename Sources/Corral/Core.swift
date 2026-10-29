@@ -673,6 +673,7 @@ final class Corral: @unchecked Sendable {
         let installed = phpVersions()
         if installed.isEmpty { throw CorralError("No PHP found. Install it with: corral php:install \(Self.phpChoices[0])") }
         for v in neededPHP(installed) where !alive("\(run)/php\(v)-fpm.pid") {
+            stopOrphanWorkers(v)
             try sh(installed[v]!, ["--fpm-config", "\(conf)/php\(v)-fpm.conf"] + iniArgs(installed[v]!))
         }
         // dnsmasq reads its names only at start. Restart it when a TLD or a site domain changes.
@@ -694,6 +695,19 @@ final class Corral: @unchecked Sendable {
             try sh(nginx, nginxArgs)
         }
         FileManager.default.createFile(atPath: run + "/autostart", contents: nil)
+    }
+
+    /// Workers of a php-fpm master that died keep its sockets open. A new php-fpm then fails with
+    /// "Another FPM instance seems to already listen". Stop the processes that hold the sockets.
+    func stopOrphanWorkers(_ version: String) {
+        let socks = ((try? FileManager.default.contentsOfDirectory(atPath: run)) ?? [])
+            .filter { $0.hasPrefix("php\(version)") && $0.hasSuffix(".sock") }
+        for sock in socks {
+            for pid in ((try? sh("/usr/sbin/lsof", ["-t", "\(run)/\(sock)"])) ?? "").split(separator: "\n").compactMap({ pid_t($0) }) {
+                kill(pid, SIGTERM)
+            }
+        }
+        if !socks.isEmpty { usleep(200_000) }
     }
 
     func dnsmasqConf(_ sites: [Site]) -> String {
