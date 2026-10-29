@@ -144,18 +144,23 @@ struct PHPTab: View {
             Section("Installed") {
                 if model.snap.versions.isEmpty { Text("No PHP version is installed.").foregroundStyle(.secondary) }
                 ForEach(model.snap.versions.reversed(), id: \.self) { v in
+                    let full = model.snap.builds[v]
+                    let latest = model.latestPHP[v]
+                    let newer = latest.map { $0.compare(full ?? v, options: .numeric) == .orderedDescending } ?? false
                     LabeledContent {
                         HStack {
                             if let ini = model.snap.iniPaths[v] {
                                 Button("php.ini") { NSWorkspace.shared.open(URL(fileURLWithPath: ini)) }.help(ini)
                             }
-                            Button("Update") { model.run("Updating PHP \(v)") { try $0.installPHP(v) } }
+                            if newer, let latest {
+                                Button("Update to \(latest)") { model.run("Updating PHP \(v) to \(latest)") { try $0.installPHP(v) } }
+                            }
                             Button("Remove") { model.run("Removing PHP \(v)") { try $0.uninstallPHP(v) } }
                         }
                         .disabled(model.busy != nil)
                     } label: {
-                        Text("PHP \(v)")
-                        Text("Corral build")
+                        Text("PHP \(full ?? v)")
+                        Text(newer ? "Update available" : latest == nil ? "Corral build" : "Up to date")
                     }
                 }
                 Picker("Settings for", selection: Binding(get: { settings.version ?? "" }, set: { settings.load($0, model.snap) })) {
@@ -177,7 +182,7 @@ struct PHPTab: View {
                     LabeledContent("Install") {
                         HStack {
                             ForEach(missing, id: \.self) { v in
-                                Button(v) { model.run("Installing PHP \(v)") { try $0.installPHP(v) } }
+                                Button(model.latestPHP[v] ?? v) { model.run("Installing PHP \(v)") { try $0.installPHP(v) } }
                             }
                         }
                         .disabled(model.busy != nil)
@@ -186,7 +191,10 @@ struct PHPTab: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { if settings.version == nil, let v = model.snap.globalPHP { settings.load(v, model.snap) } }
+        .onAppear {
+            if settings.version == nil, let v = model.snap.globalPHP { settings.load(v, model.snap) }
+            model.checkPHPUpdates()
+        }
     }
 }
 

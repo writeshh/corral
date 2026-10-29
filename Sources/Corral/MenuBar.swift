@@ -25,6 +25,7 @@ struct Snapshot: Sendable {
     var links: [(name: String, path: String)] = []
     var proxies: [(name: String, url: String)] = []
     var certs: [(host: String, expires: Date?)] = []
+    var builds: [String: String] = [:]     // PHP version -> full version, for example "8.4" -> "8.4.27"
     var iniPaths: [String: String] = [:]   // PHP version -> php.ini
     var ini: [String: [String: String]] = [:] // PHP version -> values of PHPSettings.keys
     var pools: [String: FpmPool] = [:]
@@ -65,6 +66,7 @@ struct Snapshot: Sendable {
         links = c.config.links.sorted { $0.key < $1.key }.map { (name: $0.key, path: $0.value) }
         proxies = c.config.proxies.sorted { $0.key < $1.key }.map { (name: $0.key, url: $0.value) }
         certs = sites.filter { c.config.secured.contains($0.name) }.map { (host: c.host($0), expires: c.certExpiry(c.certPath($0))) }
+        builds = Dictionary(uniqueKeysWithValues: php.keys.compactMap { v in c.phpFullVersion(v).map { (v, $0) } })
         iniPaths = Dictionary(uniqueKeysWithValues: php.map { ($0.key, c.iniPath($0.key, $0.value)) })
         for (v, path) in iniPaths {
             let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
@@ -82,6 +84,7 @@ final class Model: ObservableObject {
     @Published var error: String?
     @Published var notice: String?
     @Published var filter = ""
+    @Published private(set) var latestPHP: [String: String] = [:] // PHP version -> newest full version in the build list
 
     private let corral: Corral
     private let queue = DispatchQueue(label: "dev.corral.work") // every Corral call from the app runs here
@@ -167,6 +170,15 @@ final class Model: ObservableObject {
     }
 
     func refresh() { run(nil) { _ in } }
+
+    /// Reads the build list, so Settings can offer an update only when a newer build exists. Offline, it stays empty.
+    func checkPHPUpdates() {
+        let corral = corral
+        queue.async {
+            let latest = ((try? corral.phpManifest()) ?? [:]).compactMapValues { $0["version"] }
+            Task { @MainActor in self.latestPHP = latest }
+        }
+    }
 
     /// Runs slow work (downloads, process starts) off the main thread, then refreshes the panel.
     func run(_ label: String?, _ work: @escaping @Sendable (Corral) throws -> Void) {

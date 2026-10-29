@@ -227,6 +227,16 @@ final class Corral: @unchecked Sendable {
     /// The php.ini file that a version reads.
     func iniPath(_ version: String, _ fpm: String) -> String { (fpm as NSString).deletingLastPathComponent + "/php.ini" }
 
+    /// The full version of an installed build, for example "8.4.27". Installs write it to VERSION.
+    /// An older install has no such file, so PHP reports its version once and the file keeps it.
+    func phpFullVersion(_ minor: String) -> String? {
+        let file = "\(phpDir)/\(minor)/VERSION"
+        if let v = try? String(contentsOfFile: file, encoding: .utf8) { return v.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let v = try? sh("\(phpDir)/\(minor)/php", ["-n", "-r", "echo PHP_VERSION;"]), v.hasPrefix(minor + ".") else { return nil }
+        try? v.write(toFile: file, atomically: true, encoding: .utf8)
+        return v
+    }
+
     // Same values as Herd's php.ini, so sites behave the same after a move. output_buffering keeps
     // early notices (for example PHP 8.4 deprecations) from breaking redirects and cookies.
     static let defaultPhpIni = """
@@ -248,18 +258,23 @@ final class Corral: @unchecked Sendable {
         ?? "https://github.com/writeshh/corral/releases/download/php-builds"
 
     /// Downloads the newest build for a minor version, checks its SHA-256 from manifest.json, then installs it.
+    /// minor version -> {version, file, sha256} from the build list.
+    func phpManifest() throws -> [String: [String: String]] {
+        // The tarball names carry the version, so a cached copy is always right. manifest.json changes in place, and
+        // GitHub's release CDN serves an old copy for a while after an update. A query string skips that cache.
+        let fresh = phpSource.hasPrefix("http") ? "?t=\(Int(Date().timeIntervalSince1970))" : ""
+        guard let text = try? sh("/usr/bin/curl", ["-fsSL", "-H", "Cache-Control: no-cache", phpSource + "/manifest.json" + fresh]) else {
+            throw CorralError("Corral could not read the PHP build list at \(phpSource)/manifest.json.")
+        }
+        return (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: [String: String]] ?? [:]
+    }
+
     func installPHP(_ minor: String) throws {
         let fm = FileManager.default
         #if !arch(arm64)
         throw CorralError("Corral's PHP builds are for Apple silicon only.")
         #endif
-        // The tarball names carry the version, so a cached copy is always right. manifest.json changes in place, and
-        // GitHub's release CDN serves an old copy for a while after an update. A query string skips that cache.
-        let fresh = phpSource.hasPrefix("http") ? "?t=\(Int(Date().timeIntervalSince1970))" : ""
-        guard let manifestText = try? sh("/usr/bin/curl", ["-fsSL", "-H", "Cache-Control: no-cache", phpSource + "/manifest.json" + fresh]) else {
-            throw CorralError("Corral could not read the PHP build list at \(phpSource)/manifest.json.")
-        }
-        let manifest = (try? JSONSerialization.jsonObject(with: Data(manifestText.utf8))) as? [String: [String: String]] ?? [:]
+        let manifest = try phpManifest()
         guard let entry = manifest[minor], let file = entry["file"], let sha256 = entry["sha256"], !file.contains("/") else {
             let available = Self.sortVersions(manifest.keys).joined(separator: ", ")
             throw CorralError("No Corral PHP build for \(minor). Available: \(available.isEmpty ? "none" : available).")
@@ -276,6 +291,7 @@ final class Corral: @unchecked Sendable {
         }
         try sh("/usr/bin/tar", ["xzf", tarball, "-C", tmp])
         try fm.removeItem(atPath: tarball)
+        try entry["version"]?.write(toFile: tmp + "/VERSION", atomically: true, encoding: .utf8)
         for bin in ["php", "php-fpm"] { try sh("/usr/bin/codesign", ["--force", "--sign", "-", "\(tmp)/\(bin)"]) }
         if fm.fileExists(atPath: dir + "/php.ini") {
             try fm.moveItem(atPath: dir + "/php.ini", toPath: tmp + "/php.ini") // keep the user's edits on update

@@ -90,6 +90,8 @@ It downloads the archive for the version, checks its SHA-256 checksum, and unpac
 `.github/workflows/php.yml` makes these archives with `scripts/build-php.sh`, which uses static-php-cli.
 The builds do not read `/usr/local/etc/php/conf.d`. Corral gives each version its `php.ini` file with `-c`.
 Corral uses only these builds. It ignores Homebrew PHP and other PHP installs.
+Each install writes the full version, for example `8.4.27`, to `php/<version>/VERSION`.
+Settings compares it with `manifest.json` and offers an update only when the list has a newer build.
 Each version that a site uses gets its own PHP-FPM process and socket.
 The pool settings of each version are in `fpm` in `config.json`. Default values are not stored.
 A site with `php` values in `.corral.json` gets its own small pool and socket.

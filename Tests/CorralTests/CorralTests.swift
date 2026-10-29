@@ -128,6 +128,8 @@ import Testing
     #expect(Set(installed.keys) == ["8.4"]) // Homebrew PHP on this Mac does not count
     #expect(c.cliPath(fpm) == c.phpDir + "/8.4/php")
     #expect(c.iniArgs(fpm) == ["-c", c.phpDir + "/8.4/php.ini"])
+    try "8.4.27\n".write(toFile: c.phpDir + "/8.4/VERSION", atomically: true, encoding: .utf8)
+    #expect(c.phpFullVersion("8.4") == "8.4.27")
 
     c.config.php = "8.4"
     try c.writeShims(["8.4": fpm])

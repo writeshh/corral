@@ -153,7 +153,7 @@ enum CLI {
             case "php:list":
                 let installed = corral.phpVersions()
                 let global = corral.globalPHP(installed)
-                for v in Corral.sortVersions(installed.keys) { print("\(v == global ? "*" : " ") \(v)\t\(installed[v]!)") }
+                for v in Corral.sortVersions(installed.keys) { print("\(v == global ? "*" : " ") \(corral.phpFullVersion(v) ?? v)\t\(installed[v]!)") }
             case "php:install":
                 guard let v = arg1 else { throw CorralError("Usage: corral php:install <\(Corral.phpChoices.joined(separator: "|"))>") }
                 try corral.installPHP(v)
