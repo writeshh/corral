@@ -420,15 +420,50 @@ struct Panel: View {
             VStack(spacing: 0) {
                 if model.snap.rows.count > 8 { filterField }
                 ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(rows) { row in SiteRow(row: row, model: model) }
+                    LazyVStack(spacing: 2, pinnedViews: .sectionHeaders) {
+                        let groups = self.groups
+                        ForEach(groups, id: \.key) { group in
+                            Section {
+                                ForEach(group.rows) { row in SiteRow(row: row, model: model) }
+                            } header: {
+                                if groups.count > 1 { groupHeader(group) }
+                            }
+                        }
                     }
-                    .padding(6)
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 6)
                 }
                 .frame(maxHeight: 320)
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// Sites under the parked folder that holds them, in parked order. Linked folders and proxies come last.
+    private var groups: [(key: String, title: String, rows: [Snapshot.Row])] {
+        var byKey: [String: [Snapshot.Row]] = [:]
+        for row in rows {
+            let parent = (row.site.path as NSString).deletingLastPathComponent
+            let key = row.site.proxy != nil ? "Proxies" : model.snap.parked.contains(parent) ? parent : "Linked"
+            byKey[key, default: []].append(row)
+        }
+        return (model.snap.parked + ["Linked", "Proxies"]).compactMap { key in
+            byKey[key].map { (key: key, title: key.hasPrefix("/") ? (key as NSString).lastPathComponent : key, rows: $0) }
+        }
+    }
+
+    private func groupHeader(_ group: (key: String, title: String, rows: [Snapshot.Row])) -> some View {
+        HStack {
+            Text(group.title).font(.caption.weight(.semibold))
+            Spacer()
+            Text(String(group.rows.count)).font(.caption.monospacedDigit())
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+        .background(.bar)
+        .help(group.key.hasPrefix("/") ? (group.key as NSString).abbreviatingWithTildeInPath : group.title)
     }
 
     /// A quiet search field in the panel's 8 pt container style, not the boxed AppKit text field.
