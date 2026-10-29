@@ -81,6 +81,8 @@ final class Insights: ObservableObject {
 final class LogState: ObservableObject {
     @Published var site = ""      // "" = Corral's own logs only
     @Published var file = ""
+    @Published var picking = false // the site search popover is open
+    @Published var query = ""
     @Published private(set) var text = ""
     private var cleared: [String: Int] = [:] // path -> file size when the user clicked Clear
     private var timer: Timer?
@@ -230,6 +232,10 @@ struct LogsView: View {
     @ObservedObject var model: Model
     @StateObject private var log = LogState()
 
+    private var sites: [(name: String, host: String)] {
+        [("", "Corral only")] + model.snap.rows.filter { $0.site.proxy == nil }.map { ($0.site.name, $0.host) }
+    }
+
     static let errors = [".ERROR:", ".CRITICAL:", ".ALERT:", ".EMERGENCY:", "[error]", "[crit]", "[alert]", "[emerg]", "PHP Fatal error", "PHP Parse error"]
     static let warnings = [".WARNING:", "[warn]", "PHP Warning", "PHP Deprecated"]
 
@@ -266,11 +272,18 @@ struct LogsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Picker("Site", selection: $log.site) {
-                    Text("Corral only").tag("")
-                    ForEach(model.snap.rows.filter { $0.site.proxy == nil }) { Text($0.host).tag($0.site.name) }
+                Text("Site")
+                Button {
+                    log.picking = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(sites.first { $0.name == log.site }?.host ?? "Corral only")
+                        Image(systemName: "chevron.up.chevron.down").imageScale(.small)
+                    }
                 }
-                .fixedSize()
+                .popover(isPresented: $log.picking, arrowEdge: .bottom) {
+                    SitePicker(sites: sites, log: log)
+                }
                 Picker("File", selection: $log.file) {
                     ForEach(files, id: \.self) { Text(($0 as NSString).abbreviatingWithTildeInPath).tag($0) }
                 }
@@ -301,5 +314,48 @@ struct LogsView: View {
         .onDisappear(perform: log.unfollow)
         .onChange(of: log.site) { log.file = files.first ?? "" }
         .onChange(of: log.file) { log.reload() }
+    }
+}
+
+/// A site list with a search field. A menu with 100+ sites is too long to scan.
+/// Return picks the first match.
+struct SitePicker: View {
+    let sites: [(name: String, host: String)]
+    @ObservedObject var log: LogState
+    @FocusState private var focused: Bool
+
+    private var matches: [(name: String, host: String)] {
+        log.query.isEmpty ? sites : sites.filter { $0.host.localizedCaseInsensitiveContains(log.query) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TextField("Search sites", text: $log.query)
+                .textFieldStyle(.roundedBorder)
+                .focused($focused)
+                .onSubmit { if let first = matches.first { pick(first.name) } }
+                .padding(8)
+            Divider()
+            List(matches, id: \.name) { site in
+                Button { pick(site.name) } label: {
+                    HStack {
+                        Text(site.host)
+                        Spacer()
+                        if site.name == log.site { Image(systemName: "checkmark") }
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            }
+            .listStyle(.plain)
+            .overlay { if matches.isEmpty { Text("No match").foregroundStyle(.secondary) } }
+        }
+        .frame(width: 300, height: 360)
+        .onAppear { log.query = ""; focused = true }
+    }
+
+    private func pick(_ name: String) {
+        log.site = name
+        log.picking = false
     }
 }
