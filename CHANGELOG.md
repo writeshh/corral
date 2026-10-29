@@ -6,6 +6,21 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-29
+
+### Added
+
+- The panel shows the progress of the site check after a move from Herd, for example "Checking sites 12/133".
+
+### Changed
+
+- The site check after a move from Herd requests the sites in parallel. With 133 sites, the check takes approximately 33 seconds, not several minutes.
+
+### Fixed
+
+- The site check after a move from Herd uses the browser address, 127.0.0.2. Before, a pf rule dropped the direct requests to nginx, and each site showed "no response".
+- Only one menu bar app runs at a time. Before, `corral` without arguments in a terminal started a second app. Now it shows the help.
+
 ## [0.1.0] - 2026-10-29
 
 ### Added
@@ -68,5 +83,6 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The menu bar panel shrinks after a banner closes, and the site list text is sharp.
 - Port numbers show without a thousands separator, for example 2525.
 
-[Unreleased]: https://github.com/writeshh/corral/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/writeshh/corral/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/writeshh/corral/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/writeshh/corral/releases/tag/v0.1.0
