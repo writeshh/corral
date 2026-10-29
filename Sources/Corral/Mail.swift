@@ -237,23 +237,13 @@ struct MailView: View {
             }
             .padding(10)
             if let error = mail.error {
-                HStack(alignment: .top) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-                    Text(error).font(.callout).textSelection(.enabled)
-                    Spacer()
-                    Button { mail.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel("Dismiss")
-                }
-                .padding(.horizontal, 10).padding(.bottom, 8)
+                Banner(error: true, title: error, dismiss: { mail.error = nil }).padding(.horizontal, 10).padding(.bottom, 10)
             }
             Divider()
             if mail.messages.isEmpty {
-                VStack(spacing: 6) {
-                    Image(systemName: "tray").font(.largeTitle).foregroundStyle(.secondary)
-                    Text("No mail yet").font(.headline)
-                    Text("Send mail with SMTP to 127.0.0.1 port \(String(MailServer.port)). In a Laravel site, use \"Send Mail to Corral\" in the site menu.")
-                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 380)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContentUnavailableView("No mail yet", systemImage: "tray", description: Text(
+                    "Send mail with SMTP to 127.0.0.1 port \(String(MailServer.port)). In a Laravel site, use \"Send Mail to Corral\" in the site menu."))
+                    .frame(maxHeight: .infinity)
             } else {
                 List(mail.messages) { m in
                     Button { preview.url = m.url } label: {

@@ -379,54 +379,26 @@ struct Panel: View {
     }
 
     private func banner(_ message: String, isError: Bool = true) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: isError ? "exclamationmark.triangle.fill" : "info.circle.fill")
-                .foregroundStyle(isError ? Color.red : Color.brand)
-            Text(message).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Button { if isError { model.error = nil } else { model.notice = nil } } label: { Image(systemName: "xmark") }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Dismiss")
-        }
-        .padding(10)
-        .background((isError ? Color.red : Color.brand).opacity(0.1), in: .rect(cornerRadius: 8))
-        .padding([.horizontal, .top], 14)
-        .transition(.opacity)
+        Banner(error: isError, title: message, dismiss: { if isError { model.error = nil } else { model.notice = nil } })
+            .padding([.horizontal, .top], 14)
+            .transition(.opacity)
     }
 
     private var setupBanner: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Networking is not set up").font(.callout.weight(.semibold))
-                Text(model.snap.missing == [Corral.sharedTLD] && Corral.herdIsRunning
-                     ? "Herd serves .test. Quit Herd, then set up."
-                     : "\(model.snap.missing.map { "." + $0 }.joined(separator: ", ")) names do not resolve yet.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Button("Set Up…") { model.run("Setting up") { try $0.install() } }
-                .disabled(model.busy != nil)
+        Banner(title: "Networking is not set up",
+               detail: model.snap.missing == [Corral.sharedTLD] && Corral.herdIsRunning
+                   ? "Herd serves .test. Quit Herd, then set up."
+                   : "\(model.snap.missing.map { "." + $0 }.joined(separator: ", ")) names do not resolve yet.") {
+            Button("Set Up…") { model.run("Setting up") { try $0.install() } }.disabled(model.busy != nil)
         }
-        .padding(10)
-        .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
         .padding([.horizontal, .top], 14)
     }
 
+    // The More menu keeps "Move from Herd…" after this banner is dismissed.
     private var herdBanner: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Laravel Herd found").font(.callout.weight(.semibold))
-                Text("Move its sites, PHP versions and settings.").font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
+        Banner(title: "Laravel Herd found", detail: "Move its sites, PHP versions and settings.", dismiss: { hideHerdMove = true }) {
             Button("Move…", action: model.moveFromHerd).disabled(model.busy != nil)
-            Button { hideHerdMove = true } label: { Image(systemName: "xmark") }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Not now")
-                .help("Not now. The More menu keeps the command.")
         }
-        .padding(10)
-        .background(.tint.opacity(0.1), in: .rect(cornerRadius: 8))
         .padding([.horizontal, .top], 14)
     }
 
@@ -446,11 +418,7 @@ struct Panel: View {
             .padding(24)
         } else {
             VStack(spacing: 0) {
-                if model.snap.rows.count > 8 {
-                    TextField("Filter sites", text: $model.filter)
-                        .textFieldStyle(.roundedBorder)
-                        .padding([.horizontal, .top], 10)
-                }
+                if model.snap.rows.count > 8 { filterField }
                 ScrollView {
                     LazyVStack(spacing: 2) {
                         ForEach(rows) { row in SiteRow(row: row, model: model) }
@@ -461,6 +429,24 @@ struct Panel: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// A quiet search field in the panel's 8 pt container style, not the boxed AppKit text field.
+    private var filterField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Filter sites", text: $model.filter).textFieldStyle(.plain)
+            if !model.filter.isEmpty {
+                Button { model.filter = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Clear filter")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.quaternary.opacity(0.6), in: .rect(cornerRadius: 8))
+        .padding([.horizontal, .top], 10)
     }
 
     private var footer: some View {
@@ -530,6 +516,41 @@ struct Panel: View {
 
 // MARK: - Pieces
 
+/// One look for every inline message in the app: errors, notices and prompts.
+/// Radius rule: containers 8 pt, rows 6 pt, chips and badges capsule.
+struct Banner<Actions: View>: View {
+    var error = false
+    let title: String
+    var detail: String?
+    var dismiss: (() -> Void)?
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        HStack(alignment: detail == nil ? .firstTextBaseline : .center, spacing: 8) {
+            Image(systemName: error ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                .foregroundStyle(error ? Color.red : Color.brand)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(detail == nil ? .callout : .callout.weight(.semibold))
+                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                if let detail { Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            }
+            Spacer(minLength: 0)
+            actions
+            if let dismiss {
+                Button(action: dismiss) { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel("Dismiss")
+            }
+        }
+        .padding(10)
+        .background((error ? Color.red : Color.brand).opacity(0.1), in: .rect(cornerRadius: 8))
+    }
+}
+
+extension Banner where Actions == EmptyView {
+    init(error: Bool = false, title: String, detail: String? = nil, dismiss: (() -> Void)? = nil) {
+        self.init(error: error, title: title, detail: detail, dismiss: dismiss) { EmptyView() }
+    }
+}
+
 struct ServiceChip: View {
     let name: String
     let up: Bool
@@ -579,9 +600,9 @@ struct SiteRow: View {
                     Text(php)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(row.isolated == nil ? .secondary : .primary)
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, 7)
                         .padding(.vertical, 2)
-                        .background(.quaternary.opacity(row.isolated == nil ? 0.4 : 1), in: .rect(cornerRadius: 4))
+                        .background(.quaternary.opacity(row.isolated == nil ? 0.4 : 1), in: .capsule)
                         .help(row.isolated == nil ? "Global PHP version" : "PHP version pinned to this site")
                 }
                 actions.opacity(hovering ? 1 : 0)

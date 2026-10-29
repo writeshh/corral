@@ -114,21 +114,22 @@ struct InsightsView: View {
     @AppStorage("insightsTab") private var tab = "dumps"
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("View", selection: $tab) {
-                Text("Dumps").tag("dumps")
-                Text("Logs").tag("logs")
-                Text("Mail").tag("mail")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .padding(10)
-            Divider()
+        Group {
             switch tab {
             case "logs": LogsView(model: model)
             case "mail": MailView(model: model, mail: mail)
             default: DumpsView(model: model, insights: insights)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("View", selection: $tab) {
+                    Text("Dumps").tag("dumps")
+                    Text("Logs").tag("logs")
+                    Text("Mail").tag("mail")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
         }
         .frame(minWidth: 560, minHeight: 420)
@@ -174,23 +175,14 @@ struct DumpsView: View {
             }
             .padding(10)
             if let error = insights.error {
-                HStack(alignment: .top) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-                    Text(error).font(.callout).textSelection(.enabled)
-                    Spacer()
-                    Button { insights.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel("Dismiss")
-                }
-                .padding(.horizontal, 10).padding(.bottom, 8)
+                Banner(error: true, title: error, dismiss: { insights.error = nil }).padding(.horizontal, 10).padding(.bottom, 10)
             }
             Divider()
             if insights.dumps.isEmpty {
-                VStack(spacing: 6) {
-                    Image(systemName: "ladybug").font(.largeTitle).foregroundStyle(.secondary)
-                    Text("No dumps yet").font(.headline)
-                    Text(model.snap.dumps ? "Call dump() or dd() in a Laravel or Symfony site." : "Turn on \"Send dump() to Corral\" first.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ContentUnavailableView("No dumps yet", systemImage: "ladybug", description: Text(model.snap.dumps
+                    ? "Call dump() or dd() in a Laravel or Symfony site."
+                    : "Turn on \"Send dump() to Corral\" first."))
+                    .frame(maxHeight: .infinity)
             } else {
                 List(insights.dumps) { dump in
                     VStack(alignment: .leading, spacing: 6) {
@@ -202,7 +194,7 @@ struct DumpsView: View {
                         Text((dump.source as NSString).abbreviatingWithTildeInPath).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
                         Text(dump.styled).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(8)
-                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                            .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 8))
                     }
                     .padding(.vertical, 6)
                 }
@@ -241,17 +233,22 @@ struct LogsView: View {
             }
             .padding(10)
             Divider()
-            ScrollViewReader { proxy in
-                ScrollView {
-                    Text(log.text.isEmpty ? "This file is empty." : log.text)
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(log.text.isEmpty ? .secondary : .primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                    Color.clear.frame(height: 1).id("end")
+            if log.text.isEmpty {
+                ContentUnavailableView("Nothing logged", systemImage: "doc.text",
+                                       description: Text("New lines show here while the file grows."))
+                    .frame(maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Text(log.text)
+                            .font(.system(.callout, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                        Color.clear.frame(height: 1).id("end")
+                    }
+                    .onChange(of: log.text) { proxy.scrollTo("end") }
                 }
-                .onChange(of: log.text) { proxy.scrollTo("end") }
             }
         }
         .onAppear { if log.file.isEmpty { log.file = files.first ?? "" }; log.follow() }
