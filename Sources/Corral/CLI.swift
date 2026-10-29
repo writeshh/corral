@@ -36,8 +36,9 @@ enum CLI {
         do {
             switch args[0] {
             case "install":
-                try corral.runAsAdmin(corral.installScript())
-                print("Installed. *.\(corral.config.tld) -> \(Corral.loopback), ports 80/443 -> \(Corral.httpPort)/\(Corral.httpsPort).")
+                try corral.install()
+                let names = corral.dnsNames(corral.sites()).map { "*.\($0)" }.joined(separator: ", ")
+                print("Installed. \(names) -> \(Corral.loopback), ports 80/443 -> \(Corral.httpPort)/\(Corral.httpsPort).")
             case "uninstall":
                 corral.stop()
                 try corral.runAsAdmin(corral.uninstallScript())
@@ -45,11 +46,16 @@ enum CLI {
             case "start", "restart":
                 if args[0] == "restart" { corral.stop() }
                 try corral.start()
-                if !corral.isInstalled { print("Running, but run `corral install` once so *.\(corral.config.tld) resolves.") }
                 fallthrough
             case "status":
                 for (name, up) in corral.status() { print("\(up ? "●" : "○") \(name)") }
                 print(".\(Corral.sharedTLD) goes to \(corral.ownsTest ? "Corral" : "Herd (or nothing)")")
+                let missing = corral.missingResolvers()
+                if missing == [Corral.sharedTLD] && Corral.herdIsRunning {
+                    print("Herd serves .test, the main TLD. Quit Herd, then run `corral install`.")
+                } else if !missing.isEmpty {
+                    print("Not resolving yet: \(missing.map { "." + $0 }.joined(separator: ", ")). Run `corral install`.")
+                }
             case "import:herd":
                 let r = try corral.importHerd()
                 print("Parked folders added: \(r.parked.isEmpty ? "none" : r.parked.joined(separator: ", "))")

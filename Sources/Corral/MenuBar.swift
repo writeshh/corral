@@ -28,6 +28,9 @@ struct Snapshot: Sendable {
     var managed: Set<String> = []          // PHP versions that Corral installed
     var iniPaths: [String: String] = [:]   // PHP version -> php.ini
     var loginItem = SMAppService.Status.notRegistered
+    var tld = Config().tld
+    var aliases: [String] = []
+    var missing: [String] = []             // TLDs that do not resolve to Corral yet
 
     init() {}
 
@@ -45,7 +48,10 @@ struct Snapshot: Sendable {
         services = c.status().map { (name: $0.0, up: $0.1) }
         versions = Corral.sortVersions(php.keys)
         globalPHP = c.globalPHP(php)
-        installed = c.isInstalled
+        missing = c.resolverTLDs(sites).filter { !Corral.resolverIsCorral("/etc/resolver/" + $0) }
+        installed = missing.isEmpty
+        tld = c.config.tld
+        aliases = c.config.aliases
         ownsTest = c.ownsTest
         home = c.home
         parked = c.config.parked
@@ -134,7 +140,7 @@ final class Model: ObservableObject {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.prompt = "Park"
-        panel.message = "Corral serves each subfolder as <folder>.internal."
+        panel.message = "Corral serves each subfolder as <folder>.\(snap.tld)."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         run("Parking") { c in
             if !c.config.parked.contains(url.path) { c.config.parked.append(url.path) }
@@ -236,10 +242,13 @@ struct Panel: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Networking is not set up").font(.callout.weight(.semibold))
-                Text(".internal names do not resolve yet.").font(.caption).foregroundStyle(.secondary)
+                Text(model.snap.missing == [Corral.sharedTLD] && Corral.herdIsRunning
+                     ? "Herd serves .test. Quit Herd, then set up."
+                     : "\(model.snap.missing.map { "." + $0 }.joined(separator: ", ")) names do not resolve yet.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Set Up…") { model.run("Setting up") { try $0.runAsAdmin($0.installScript()) } }
+            Button("Set Up…") { model.run("Setting up") { try $0.install() } }
                 .disabled(model.busy != nil)
         }
         .padding(10)

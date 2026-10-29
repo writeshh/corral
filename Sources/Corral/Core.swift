@@ -1,7 +1,8 @@
 import AppKit
 
 struct Config: Codable, Equatable {
-    var tld = "internal"                 // ICANN-reserved private TLD, so it can't clash with Herd's .test
+    var tld = "test"                     // main TLD: URLs and certificate file names use it
+    var aliases: [String] = []           // extra TLDs, for example "internal": every site also answers <site>.internal
     var php: String?                     // global PHP version; nil = newest installed
     var parked: [String] = []
     var links: [String: String] = [:]    // site name -> directory
@@ -16,6 +17,8 @@ struct Config: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Config()
         tld = try c.decodeIfPresent(String.self, forKey: .tld) ?? d.tld
+        // Before aliases existed, every site also answered .test. Keep that for old configs.
+        aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? (tld == Corral.sharedTLD ? [] : [Corral.sharedTLD])
         php = try c.decodeIfPresent(String.self, forKey: .php)
         parked = try c.decodeIfPresent([String].self, forKey: .parked) ?? d.parked
         links = try c.decodeIfPresent([String: String].self, forKey: .links) ?? d.links
@@ -29,6 +32,7 @@ struct Config: Codable, Equatable {
 struct SiteOverrides: Codable, Equatable {
     var root: String?   // document root, relative to the site folder
     var nginx: String?  // extra directives inside the site's server block
+    var domains: [String]? // extra host names, for example ["shop.local"]
 }
 
 struct Site: Identifiable, Equatable {
@@ -149,10 +153,32 @@ final class Corral: @unchecked Sendable {
 
     func host(_ site: Site) -> String { "\(site.name).\(config.tld)" }
 
-    /// Every site also answers <site>.test, so URLs saved under Herd work after `corral takeover`.
+    /// The TLD that Herd also uses. `corral takeover` and `handback` move it between the two.
     static let sharedTLD = "test"
-    var tlds: [String] { config.tld == Self.sharedTLD ? [config.tld] : [config.tld, Self.sharedTLD] }
-    func hostnames(_ site: Site) -> [String] { tlds.map { "\(site.name).\($0)" } }
+    var tlds: [String] { ([config.tld] + config.aliases).reduce(into: []) { if !$0.contains($1) { $0.append($1) } } }
+
+    /// Main name first: certificate files use it.
+    func hostnames(_ site: Site) -> [String] {
+        (tlds.map { "\(site.name).\($0)" } + (site.overrides.domains ?? []).map { $0.lowercased() })
+            .reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+    }
+
+    /// Every name that dnsmasq answers: the TLDs plus the extra domains of each site.
+    func dnsNames(_ sites: [Site]) -> [String] {
+        tlds + Set(sites.flatMap { $0.overrides.domains ?? [] }.map { $0.lowercased() }).subtracting(tlds).sorted()
+    }
+
+    /// The TLDs that need a file in /etc/resolver. .test needs one only when it is the main TLD:
+    /// as an alias, `corral takeover` decides who gets it.
+    func resolverTLDs(_ sites: [Site]) -> [String] {
+        let all = tlds + dnsNames(sites).compactMap { $0.split(separator: ".").last.map(String.init) }
+        return Set(all).filter { $0 != Self.sharedTLD || config.tld == Self.sharedTLD }.sorted()
+    }
+
+    /// TLDs in use that do not resolve to Corral yet. `corral install` fixes them.
+    func missingResolvers() -> [String] {
+        resolverTLDs(sites()).filter { !Self.resolverIsCorral("/etc/resolver/" + $0) }
+    }
 
     func url(_ site: Site) -> URL {
         URL(string: (config.secured.contains(site.name) ? "https://" : "http://") + host(site))!
@@ -527,12 +553,16 @@ final class Corral: @unchecked Sendable {
         for v in neededPHP(installed) where !alive("\(run)/php\(v)-fpm.pid") {
             try sh(installed[v]!, ["--fpm-config", "\(conf)/php\(v)-fpm.conf"] + iniArgs(installed[v]!))
         }
-        if !alive(run + "/dnsmasq.pid") {
-            try sh(tool("dnsmasq"), [
-                "--conf-file=/dev/null", "--port=\(Self.dnsPort)", "--listen-address=127.0.0.1", "--bind-interfaces",
-                "--no-resolv", "--no-hosts", "--address=/\(tlds.joined(separator: "/"))/\(Self.loopback)", "--pid-file=\(run)/dnsmasq.pid",
-            ])
+        // dnsmasq reads its names only at start. Restart it when a TLD or a site domain changes.
+        let dns = dnsmasqConf(sites()), dnsFile = conf + "/dnsmasq.conf"
+        if (try? String(contentsOfFile: dnsFile, encoding: .utf8)) != dns {
+            try dns.write(toFile: dnsFile, atomically: true, encoding: .utf8)
+            if let pid = readPid(run + "/dnsmasq.pid"), alive(run + "/dnsmasq.pid") {
+                kill(pid, SIGTERM)
+                for _ in 0..<30 where alive(run + "/dnsmasq.pid") { usleep(100_000) }
+            }
         }
+        if !alive(run + "/dnsmasq.pid") { try sh(tool("dnsmasq"), ["--conf-file=" + dnsFile]) }
         let nginx = try tool("nginx")
         try sh(nginx, nginxArgs + ["-t", "-q"])
         if isRunning {
@@ -542,6 +572,19 @@ final class Corral: @unchecked Sendable {
             try sh(nginx, nginxArgs)
         }
         FileManager.default.createFile(atPath: run + "/autostart", contents: nil)
+    }
+
+    func dnsmasqConf(_ sites: [Site]) -> String {
+        """
+        port=\(Self.dnsPort)
+        listen-address=127.0.0.1
+        bind-interfaces
+        no-resolv
+        no-hosts
+        address=/\(dnsNames(sites).joined(separator: "/"))/\(Self.loopback)
+        pid-file=\(run)/dnsmasq.pid
+
+        """
     }
 
     func stop() {
@@ -596,7 +639,7 @@ final class Corral: @unchecked Sendable {
         basicConstraints = CA:FALSE
         keyUsage = critical,digitalSignature,keyEncipherment
         extendedKeyUsage = serverAuth
-        subjectAltName = \(hosts.map { "DNS:\($0),DNS:*.\($0)" }.joined(separator: ","))
+        subjectAltName = \(Self.sanList(hosts))
         """.write(toFile: base + ".ext", atomically: true, encoding: .utf8)
         try sh("/usr/bin/openssl", ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=\(host)",
                                     "-keyout", base + ".key", "-out", base + ".csr"])
@@ -629,12 +672,21 @@ final class Corral: @unchecked Sendable {
         return expiry < Date().addingTimeInterval(TimeInterval(days * 86400))
     }
 
-    /// Re-issues each secured site's certificate that is missing or expires within 30 days.
+    /// True when the certificate was made for other names, for example before a TLD or domain change.
+    /// makeCert writes the names to the .ext file next to the certificate.
+    func certNamesChanged(_ site: Site) -> Bool {
+        let ext = (try? String(contentsOfFile: "\(certs)/\(host(site)).ext", encoding: .utf8)) ?? ""
+        return !ext.components(separatedBy: "\n").contains("subjectAltName = \(Self.sanList(hostnames(site)))")
+    }
+
+    static func sanList(_ hosts: [String]) -> String { hosts.map { "DNS:\($0),DNS:*.\($0)" }.joined(separator: ",") }
+
+    /// Re-issues each secured site's certificate that is missing, expires within 30 days, or lacks a name.
     /// Herd and Valet never do this, so their sites break after a year. No prompt: the CA is already trusted.
     /// ponytail: runs on `corral start` only. Add a daily timer if Corral ever runs for months without a restart.
     @discardableResult
     func renewCertificates(within days: Int = 30) throws -> [String] {
-        let due = sites().filter { config.secured.contains($0.name) && certNeedsRenewal(certPath($0), days: days) }
+        let due = sites().filter { config.secured.contains($0.name) && (certNeedsRenewal(certPath($0), days: days) || certNamesChanged($0)) }
         guard !due.isEmpty else { return [] }
         try ensureCA()
         for site in due { try makeCert(hostnames(site)) }
@@ -660,7 +712,7 @@ final class Corral: @unchecked Sendable {
         (try? String(contentsOfFile: path, encoding: .utf8))?.contains("port \(dnsPort)") ?? false
     }
 
-    var isInstalled: Bool { Self.resolverIsCorral("/etc/resolver/" + config.tld) }
+    var isInstalled: Bool { missingResolvers().isEmpty }
 
     // MARK: Sharing .test with Herd
 
@@ -701,6 +753,11 @@ final class Corral: @unchecked Sendable {
         try runAsAdmin(takeoverScript())
     }
 
+    func install() throws {
+        if config.tld == Self.sharedTLD && Self.herdIsRunning { throw CorralError("Quit Herd first. Herd takes .test back while it runs.") }
+        try runAsAdmin(installScript())
+    }
+
     func installScript() throws -> String {
         let boot = """
         /sbin/ifconfig lo0 alias \(Self.loopback) up
@@ -709,10 +766,13 @@ final class Corral: @unchecked Sendable {
         """
         let plist: [String: Any] = ["Label": Self.daemonLabel, "ProgramArguments": ["/bin/sh", "-c", boot], "RunAtLoad": true]
         let xml = String(decoding: try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0), as: UTF8.self)
+        let resolvers = resolverTLDs(sites()).filter { $0 != Self.sharedTLD }
+            .map { "printf 'nameserver 127.0.0.1\\nport \(Self.dnsPort)\\n' > /etc/resolver/\($0)" }
         return """
         set -e
         mkdir -p /etc/resolver
-        printf 'nameserver 127.0.0.1\\nport \(Self.dnsPort)\\n' > /etc/resolver/\(config.tld)
+        \(resolvers.joined(separator: "\n"))
+        \(config.tld == Self.sharedTLD ? takeoverScript() : "")
         cat > /Library/LaunchDaemons/\(Self.daemonLabel).plist <<'PLIST'
         \(xml)
         PLIST
@@ -727,7 +787,7 @@ final class Corral: @unchecked Sendable {
 
         launchctl bootout system/\(Self.daemonLabel) 2>/dev/null || true
         rm -f /Library/LaunchDaemons/\(Self.daemonLabel).plist
-        grep -q 'port \(Self.dnsPort)' /etc/resolver/\(config.tld) 2>/dev/null && rm -f /etc/resolver/\(config.tld)
+        for f in /etc/resolver/*; do grep -q 'port \(Self.dnsPort)' "$f" 2>/dev/null && rm -f "$f"; done
         /sbin/pfctl -a com.apple/corral -F all 2>/dev/null || true
         /sbin/ifconfig lo0 -alias \(Self.loopback) 2>/dev/null || true
         """

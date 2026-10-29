@@ -12,6 +12,8 @@ import Testing
     try fm.createDirectory(atPath: tmp + "/elsewhere", withIntermediateDirectories: true)
 
     let c = Corral(home: tmp + "/home")
+    c.config.tld = "internal"
+    c.config.aliases = ["test"]
     c.config.parked = [tmp + "/parked"]
     c.config.links = ["shop": tmp + "/elsewhere", "blog": tmp + "/elsewhere"] // link overrides parked "blog"
     c.config.secured = ["shop"]
@@ -160,6 +162,9 @@ import Testing
     #expect(!Corral.resolverIsCorral(tmp + "/missing"))
 
     let c = Corral(home: tmp + "/home")
+    #expect(c.tlds == ["test"])
+    c.config.tld = "internal"
+    c.config.aliases = ["test"]
     #expect(c.tlds == ["internal", "test"])
     let take = c.takeoverScript(), back = c.handbackScript()
     #expect(take.contains("cp -p /etc/resolver/test \"\(Corral.resolverBackup)\""))   // keeps Herd's file
@@ -168,7 +173,7 @@ import Testing
     #expect(!c.uninstallScript().contains("rm -f /Library/LaunchDaemons/dev.corral.network.plist /etc/resolver"))
 
     c.config.tld = "test"
-    #expect(c.tlds == ["test"])
+    #expect(c.tlds == ["test"])                                 // no duplicate
 }
 
 @Test func importFromHerd() throws {
@@ -200,7 +205,7 @@ import Testing
     #expect(r.secured == ["rfsudev", "shop"])
     #expect(r.skipped == ["gone"])
     #expect(r.php == "8.4" && c.config.php == "8.4")
-    #expect(fm.fileExists(atPath: c.certs + "/shop.internal.crt"))
+    #expect(fm.fileExists(atPath: c.certs + "/shop.test.crt"))
 
     let again = try c.importHerd(from: herd, trust: false)    // a second run changes nothing
     #expect(again.parked.isEmpty && again.links.isEmpty && again.secured.isEmpty)
@@ -263,4 +268,48 @@ import Testing
 
     try fm.removeItem(atPath: c.certPath(blog))     // a lost certificate comes back too
     #expect(try c.renewCertificates() == ["blog"])
+}
+
+@Test func tldsAndSiteDomains() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: tmp + "/sites/shop", withIntermediateDirectories: true)
+    fm.createFile(atPath: tmp + "/sites/shop/.corral.json", contents: Data(#"{"domains": ["Shop.local"]}"#.utf8))
+
+    // Old configs keep their names: .internal plus .test. New ones serve .test only.
+    func load(_ json: String) throws -> Config { try JSONDecoder().decode(Config.self, from: Data(json.utf8)) }
+    #expect(try load(#"{"tld": "internal"}"#).aliases == ["test"])
+    #expect(try load(#"{"tld": "test"}"#).aliases == [])
+    #expect(try load(#"{"tld": "internal", "aliases": []}"#).aliases == [])
+    #expect(Config().tld == "test" && Config().aliases.isEmpty)
+
+    let c = Corral(home: tmp + "/home")
+    c.config.parked = [tmp + "/sites"]
+    let shop = c.sites()[0]
+    #expect(c.hostnames(shop) == ["shop.test", "shop.local"])
+    #expect(c.dnsNames(c.sites()) == ["test", "shop.local"])
+    #expect(c.resolverTLDs(c.sites()) == ["local", "test"])    // .test is the main TLD here
+    #expect(c.dnsmasqConf(c.sites()).contains("address=/test/shop.local/127.0.0.2\n"))
+    #expect(c.nginxConf(sites: c.sites(), installed: [:]).contains("server_name shop.test *.shop.test shop.local *.shop.local;"))
+    let install = try c.installScript()
+    #expect(install.contains("> /etc/resolver/local") && install.contains("cp -p /etc/resolver/test")) // takes .test over, keeps Herd's file
+    #expect(c.uninstallScript().contains("for f in /etc/resolver/*"))
+
+    c.config.tld = "internal"
+    c.config.aliases = ["test"]
+    #expect(c.resolverTLDs(c.sites()) == ["internal", "local"]) // .test as an alias stays with takeover
+    #expect(try !c.installScript().contains("cp -p /etc/resolver/test"))
+
+    // A name change makes a new certificate, even when the old one is still valid.
+    c.config.secured = ["shop"]
+    try c.ensureCA()
+    try c.makeCert(c.hostnames(shop))
+    #expect(!c.certNamesChanged(shop))
+    #expect(try c.renewCertificates().isEmpty)
+    c.config.aliases = ["test", "dev"]
+    #expect(c.certNamesChanged(shop))
+    #expect(try c.renewCertificates() == ["shop"])
+    let text = try c.sh("/usr/bin/openssl", ["x509", "-noout", "-text", "-in", c.certPath(shop)])
+    #expect(text.contains("DNS:*.shop.dev") && text.contains("DNS:shop.local"))
 }

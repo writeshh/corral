@@ -43,6 +43,7 @@ struct StatusLine: View {
 
 struct GeneralTab: View {
     @ObservedObject var model: Model
+    @StateObject private var domains = DomainDraft()
 
     var body: some View {
         Form {
@@ -60,6 +61,19 @@ struct GeneralTab: View {
                 Text("Corral starts the services again if they ran before, and restarts a service that stops.").foregroundStyle(.secondary)
             }
             Section {
+                TextField("Main TLD", text: $domains.tld)
+                TextField("Extra TLDs", text: $domains.aliases, prompt: Text("internal"))
+                LabeledContent("") {
+                    Button("Apply", action: applyDomains)
+                        .disabled(model.busy != nil || (domains.tld == model.snap.tld && domains.aliases == model.snap.aliases.joined(separator: ", ")))
+                }
+            } header: {
+                Text("Domains")
+            } footer: {
+                Text("Each site answers <site>.<TLD> for every TLD. A site can add more names with \"domains\" in .corral.json. Corral asks for your password to update /etc/resolver.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
                 Toggle("Serve .test instead of Herd", isOn: Binding(
                     get: { model.snap.ownsTest },
                     set: { on in
@@ -70,6 +84,7 @@ struct GeneralTab: View {
             } footer: {
                 Text("Quit Herd first. Herd takes .test back while it runs.").foregroundStyle(.secondary)
             }
+            .disabled(model.snap.tld == Corral.sharedTLD)
             Section {
                 LabeledContent("Services") {
                     Button("Restart") { model.run("Restarting") { c in c.stop(); try c.start() } }.disabled(!model.running)
@@ -80,7 +95,30 @@ struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { domains.tld = model.snap.tld; domains.aliases = model.snap.aliases.joined(separator: ", ") }
     }
+
+    private func applyDomains() {
+        let label = /^[a-z0-9-]+$/
+        let tld = domains.tld.lowercased().trimmingCharacters(in: .whitespaces)
+        let aliases = domains.aliases.lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard ([tld] + aliases).allSatisfy({ $0.wholeMatch(of: label) != nil }) else {
+            model.error = "A TLD can have only letters, digits and hyphens, for example test or internal."
+            return
+        }
+        model.run("Changing domains") { c in
+            c.config.tld = tld
+            c.config.aliases = aliases
+            try c.apply()
+            if !c.isInstalled { try c.install() }
+        }
+    }
+}
+
+/// Text field values for the domain settings.
+final class DomainDraft: ObservableObject {
+    @Published var tld = ""
+    @Published var aliases = ""
 }
 
 struct PHPTab: View {
