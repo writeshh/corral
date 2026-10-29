@@ -167,7 +167,7 @@ struct DumpsView: View {
         VStack(spacing: 0) {
             HStack {
                 Toggle("Send dump() to Corral", isOn: Binding(get: { model.snap.dumps }, set: setDumps))
-                    .help("Sites send dump() and dd() output here, not into the page. Uses Symfony VarDumper's server mode on port \(Corral.dumpPort).")
+                    .help("Sites send dump() and dd() output here, not into the page. Uses Symfony VarDumper's server mode on port \(String(Corral.dumpPort)).")
                 Spacer()
                 Text("\(insights.dumps.count) of \(Insights.limit)").font(.caption).foregroundStyle(.secondary)
                 Button("Clear", action: insights.clear).disabled(insights.dumps.isEmpty)

@@ -230,7 +230,7 @@ struct MailView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Toggle("Catch mail on 127.0.0.1:\(MailServer.port)", isOn: Binding(get: { model.snap.mail }, set: setMail))
+                Toggle("Catch mail on 127.0.0.1:\(String(MailServer.port))", isOn: Binding(get: { model.snap.mail }, set: setMail)) // String: no "2,525"
                 Spacer()
                 Text("\(mail.messages.count) of \(MailServer.limit)").font(.caption).foregroundStyle(.secondary)
                 Button("Clear", action: mail.clear).disabled(mail.messages.isEmpty)
@@ -250,7 +250,7 @@ struct MailView: View {
                 VStack(spacing: 6) {
                     Image(systemName: "tray").font(.largeTitle).foregroundStyle(.secondary)
                     Text("No mail yet").font(.headline)
-                    Text("Send mail with SMTP to 127.0.0.1 port \(MailServer.port). In a Laravel site, use \"Send Mail to Corral\" in the site menu.")
+                    Text("Send mail with SMTP to 127.0.0.1 port \(String(MailServer.port)). In a Laravel site, use \"Send Mail to Corral\" in the site menu.")
                         .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 380)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
