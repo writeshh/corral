@@ -25,7 +25,6 @@ struct Snapshot: Sendable {
     var links: [(name: String, path: String)] = []
     var proxies: [(name: String, url: String)] = []
     var certs: [(host: String, expires: Date?)] = []
-    var managed: Set<String> = []          // PHP versions that Corral installed
     var iniPaths: [String: String] = [:]   // PHP version -> php.ini
     var ini: [String: [String: String]] = [:] // PHP version -> values of PHPSettings.keys
     var pools: [String: FpmPool] = [:]
@@ -66,7 +65,6 @@ struct Snapshot: Sendable {
         links = c.config.links.sorted { $0.key < $1.key }.map { (name: $0.key, path: $0.value) }
         proxies = c.config.proxies.sorted { $0.key < $1.key }.map { (name: $0.key, url: $0.value) }
         certs = sites.filter { c.config.secured.contains($0.name) }.map { (host: c.host($0), expires: c.certExpiry(c.certPath($0))) }
-        managed = Set(php.filter { c.isManaged($0.value) }.keys)
         iniPaths = Dictionary(uniqueKeysWithValues: php.map { ($0.key, c.iniPath($0.key, $0.value)) })
         for (v, path) in iniPaths {
             let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""

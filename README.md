@@ -41,7 +41,8 @@ Corral connects to the internet only when you install a PHP version.
    ./Corral.app/Contents/MacOS/Corral php:install 8.5
    ```
 
-3. Add the commands to your path. Add this line to `~/.zshrc`, then open a new terminal:
+3. Add the commands to your path. Add this line to `~/.zshrc` after any Herd or Homebrew lines, then open a new terminal.
+   Corral's `bin` folder must come first, so `php` runs Corral's build:
 
    ```sh
    export PATH="$HOME/Library/Application Support/Corral/bin:$PATH"
@@ -110,8 +111,8 @@ The builds use [static-php-cli](https://static-php.dev), the same tool that Lara
 bcmath, bz2, calendar, ctype, curl, dom, exif, fileinfo, filter, ftp, gd (with FreeType, JPEG, and WebP), gmp, iconv, igbinary, intl, mbregex, mbstring, mysqli, mysqlnd, opcache, openssl, pcntl, pdo, pdo_mysql, pdo_pgsql, pdo_sqlite, pgsql, phar, posix, readline, redis, session, shmop, simplexml, soap, sockets, sodium, sqlite3, sysvmsg, sysvsem, sysvshm, tokenizer, xml, xmlreader, xmlwriter, xsl, zip, zlib.
 
 The builds do not include imagick, imap, ldap, mongodb, sqlsrv, or Xdebug.
-If you need one of these extensions, install PHP with Homebrew, for example `brew install php@8.4`.
-Corral also finds Homebrew PHP versions. A version that Corral installed has priority over the Homebrew version.
+Corral uses only its own builds. It ignores Homebrew PHP, Herd PHP, and other PHP installs.
+To make `php` in a terminal run Corral's build, put Corral's `bin` folder first in `PATH` (see the install steps).
 
 Each PHP version that Corral installed has a `php.ini` file in `~/Library/Application Support/Corral/php/<version>/`.
 Corral keeps your changes to this file when you update the version.
@@ -294,7 +295,7 @@ These environment variables change the defaults:
 | `CORRAL_HOME` | Use a different state folder. Keep the path short. Socket paths must be shorter than 104 bytes. |
 | `CORRAL_NGINX` | Use a different nginx binary. |
 | `CORRAL_DNSMASQ` | Use a different dnsmasq binary. |
-| `HOMEBREW_PREFIX` | Look for Homebrew PHP in a different folder. The default is `/opt/homebrew`. |
+| `HOMEBREW_PREFIX` | Look for Homebrew nginx and dnsmasq in a different folder. The default is `/opt/homebrew`. |
 
 ## Uninstall
 

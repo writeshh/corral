@@ -144,21 +144,18 @@ struct PHPTab: View {
             Section("Installed") {
                 if model.snap.versions.isEmpty { Text("No PHP version is installed.").foregroundStyle(.secondary) }
                 ForEach(model.snap.versions.reversed(), id: \.self) { v in
-                    let managed = model.snap.managed.contains(v)
                     LabeledContent {
                         HStack {
                             if let ini = model.snap.iniPaths[v] {
                                 Button("php.ini") { NSWorkspace.shared.open(URL(fileURLWithPath: ini)) }.help(ini)
                             }
-                            if managed {
-                                Button("Update") { model.run("Updating PHP \(v)") { try $0.installPHP(v) } }
-                                Button("Remove") { model.run("Removing PHP \(v)") { try $0.uninstallPHP(v) } }
-                            }
+                            Button("Update") { model.run("Updating PHP \(v)") { try $0.installPHP(v) } }
+                            Button("Remove") { model.run("Removing PHP \(v)") { try $0.uninstallPHP(v) } }
                         }
                         .disabled(model.busy != nil)
                     } label: {
                         Text("PHP \(v)")
-                        Text(managed ? "Corral build" : "Homebrew")
+                        Text("Corral build")
                     }
                 }
                 Picker("Settings for", selection: Binding(get: { settings.version ?? "" }, set: { settings.load($0, model.snap) })) {

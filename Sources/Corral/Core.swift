@@ -208,39 +208,24 @@ final class Corral: @unchecked Sendable {
     // ponytail: keep in step with the matrix in .github/workflows/php.yml.
     static let phpChoices = ["8.5", "8.4", "8.3", "8.2", "8.1"]
 
-    /// version ("8.5") -> php-fpm path. Corral's own static builds win over Homebrew's opt/php and opt/php@X.Y.
+    /// version ("8.5") -> php-fpm path. Only Corral's own builds count: Homebrew, Herd and other PHP installs are
+    /// ignored, so every site runs a build with the same extensions and php.ini.
     func phpVersions() -> [String: String] {
         let fm = FileManager.default
         var out: [String: String] = [:]
-        for name in (try? fm.contentsOfDirectory(atPath: brew + "/opt")) ?? [] where name == "php" || name.hasPrefix("php@") {
-            let fpm = "\(brew)/opt/\(name)/sbin/php-fpm"
-            guard fm.isExecutableFile(atPath: fpm),
-                  let cellar = try? fm.destinationOfSymbolicLink(atPath: "\(brew)/opt/\(name)") else { continue }
-            // "../Cellar/php/8.5.11_1" -> "8.5"
-            let v = URL(fileURLWithPath: cellar).lastPathComponent.split(separator: ".").prefix(2).joined(separator: ".")
-            out[v] = fpm
-        }
         for v in (try? fm.contentsOfDirectory(atPath: phpDir)) ?? [] where fm.isExecutableFile(atPath: "\(phpDir)/\(v)/php-fpm") {
             out[v] = "\(phpDir)/\(v)/php-fpm"
         }
         return out
     }
 
-    func isManaged(_ fpm: String) -> Bool { fpm.hasPrefix(phpDir + "/") }
+    func cliPath(_ fpm: String) -> String { (fpm as NSString).deletingLastPathComponent + "/php" }
 
-    func cliPath(_ fpm: String) -> String {
-        isManaged(fpm) ? (fpm as NSString).deletingLastPathComponent + "/php" : fpm.replacingOccurrences(of: "/sbin/php-fpm", with: "/bin/php")
-    }
-
-    /// Static builds keep php.ini next to the binaries. Homebrew builds use Homebrew's php.ini.
-    func iniArgs(_ fpm: String) -> [String] {
-        isManaged(fpm) ? ["-c", (fpm as NSString).deletingLastPathComponent + "/php.ini"] : []
-    }
+    /// Corral's builds keep php.ini next to the binaries.
+    func iniArgs(_ fpm: String) -> [String] { ["-c", iniPath("", fpm)] }
 
     /// The php.ini file that a version reads.
-    func iniPath(_ version: String, _ fpm: String) -> String {
-        isManaged(fpm) ? (fpm as NSString).deletingLastPathComponent + "/php.ini" : "\(brew)/etc/php/\(version)/php.ini"
-    }
+    func iniPath(_ version: String, _ fpm: String) -> String { (fpm as NSString).deletingLastPathComponent + "/php.ini" }
 
     // Same values as Herd's php.ini, so sites behave the same after a move. output_buffering keeps
     // early notices (for example PHP 8.4 deprecations) from breaking redirects and cookies.
@@ -266,7 +251,7 @@ final class Corral: @unchecked Sendable {
     func installPHP(_ minor: String) throws {
         let fm = FileManager.default
         #if !arch(arm64)
-        throw CorralError("Corral's PHP builds are for Apple silicon only. Use Homebrew PHP on this Mac.")
+        throw CorralError("Corral's PHP builds are for Apple silicon only.")
         #endif
         // The tarball names carry the version, so a cached copy is always right. manifest.json changes in place, and
         // GitHub's release CDN serves an old copy for a while after an update. A query string skips that cache.
@@ -1064,12 +1049,12 @@ final class Corral: @unchecked Sendable {
         result.installs = Self.sortVersions(Set([result.php].compactMap { $0 } + result.isolated.values).filter { installed[$0] == nil })
         if !dryRun { for v in result.installs { try installPHP(v) } }
 
-        // php.ini values from config/php/84/php.ini, for Corral's own builds only. Homebrew's php.ini stays as it is.
+        // php.ini values from config/php/84/php.ini, for the versions Corral has or installs now.
         for dir in ((try? fm.contentsOfDirectory(atPath: herd + "/config/php")) ?? []).sorted() {
             guard let m = dir.wholeMatch(of: /(\d)(\d+)/), let text = try? String(contentsOfFile: "\(herd)/config/php/\(dir)/php.ini", encoding: .utf8) else { continue }
             let v = version(m.1, m.2)
             let fpm = phpVersions()[v]
-            guard fpm.map(isManaged) ?? result.installs.contains(v) else { continue }
+            guard fpm != nil || result.installs.contains(v) else { continue }
             let current = fpm.flatMap { try? String(contentsOfFile: iniPath(v, $0), encoding: .utf8) } ?? Self.defaultPhpIni
             var values: [String: String] = [:]
             for line in text.components(separatedBy: "\n") where !line.hasPrefix(";") && !line.hasPrefix("[") {

@@ -125,11 +125,9 @@ import Testing
     }
     let installed = c.phpVersions()
     let fpm = try #require(installed["8.4"])
-    #expect(c.isManaged(fpm))
+    #expect(Set(installed.keys) == ["8.4"]) // Homebrew PHP on this Mac does not count
     #expect(c.cliPath(fpm) == c.phpDir + "/8.4/php")
     #expect(c.iniArgs(fpm) == ["-c", c.phpDir + "/8.4/php.ini"])
-    #expect(c.cliPath("/opt/homebrew/opt/php@8.3/sbin/php-fpm") == "/opt/homebrew/opt/php@8.3/bin/php")
-    #expect(c.iniArgs("/opt/homebrew/opt/php@8.3/sbin/php-fpm").isEmpty)
 
     c.config.php = "8.4"
     try c.writeShims(["8.4": fpm])

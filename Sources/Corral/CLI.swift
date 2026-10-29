@@ -22,7 +22,7 @@ enum CLI {
       secured                      list secured sites with the expiry date of each certificate
       use <ver>                    set the global PHP version
       isolate <ver> [site] | unisolate [site]
-      php:list                     installed PHP versions
+      php:list                     installed PHP versions (Corral builds only)
       php:install <ver>            download a static PHP build, for example 8.4
       php:uninstall <ver>          remove a PHP version that Corral installed
       open [site]
