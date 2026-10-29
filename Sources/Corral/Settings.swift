@@ -26,17 +26,24 @@ struct StatusLine: View {
     @ObservedObject var model: Model
 
     var body: some View {
-        if let busy = model.busy {
-            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("\(busy)…").foregroundStyle(.secondary) }
-                .font(.callout).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.bottom, 12)
-        } else if let error = model.error {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-                Text(error).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                Button { model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel("Dismiss")
+        if model.busy != nil || model.error != nil {
+            VStack(spacing: 0) {
+                Divider()
+                Group {
+                    if let busy = model.busy {
+                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("\(busy)…").foregroundStyle(.secondary) }
+                    } else if let error = model.error {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                            Text(error).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                            Button { model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel("Dismiss")
+                        }
+                    }
+                }
+                .font(.callout).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 12)
             }
-            .font(.callout).padding(.horizontal, 20).padding(.bottom, 12)
+            .background(.bar)
         }
     }
 }
