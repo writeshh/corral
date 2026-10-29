@@ -268,7 +268,9 @@ final class Corral: @unchecked Sendable {
         #if !arch(arm64)
         throw CorralError("Corral's PHP builds are for Apple silicon only. Use Homebrew PHP on this Mac.")
         #endif
-        let manifestText = try sh("/usr/bin/curl", ["-fsSL", phpSource + "/manifest.json"])
+        guard let manifestText = try? sh("/usr/bin/curl", ["-fsSL", phpSource + "/manifest.json"]) else {
+            throw CorralError("Corral could not read the PHP build list at \(phpSource)/manifest.json.")
+        }
         let manifest = (try? JSONSerialization.jsonObject(with: Data(manifestText.utf8))) as? [String: [String: String]] ?? [:]
         guard let entry = manifest[minor], let file = entry["file"], let sha256 = entry["sha256"], !file.contains("/") else {
             let available = Self.sortVersions(manifest.keys).joined(separator: ", ")
