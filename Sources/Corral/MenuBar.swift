@@ -524,6 +524,7 @@ struct Panel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .tint(.primary) // orange labels fade on the translucent panel over a light window
     }
 }
 
