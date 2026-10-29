@@ -1111,21 +1111,21 @@ final class Corral: @unchecked Sendable {
     }
 
     /// The last step of a move from Herd: serve .test, start the services, then check every site.
-    func finishHerdMove() throws -> [(site: String, problem: String)] {
+    func finishHerdMove(progress: @Sendable (_ done: Int, _ total: Int) -> Void = { _, _ in }) throws -> [(site: String, problem: String)] {
         if Self.herdIsRunning { try Self.quitHerd() }
         try start()
         if !ownsTest { try config.tld == Self.sharedTLD ? install() : takeover() }
-        return checkSites()
+        return checkSites(progress: progress)
     }
 
     /// Requests each PHP site through nginx and names the likely cause of an error. Herd and Corral share the
     /// same databases, so most failures are a database or a `composer install` that Herd's copy had and this one lacks.
     /// Requests run in parallel, at most one for each FPM worker, because a request that waits in the pool queue can time out.
-    func checkSites() -> [(site: String, problem: String)] {
+    func checkSites(progress: @Sendable (_ done: Int, _ total: Int) -> Void = { _, _ in }) -> [(site: String, problem: String)] {
         let installed = phpVersions()
         let list = sites().filter { $0.proxy == nil }
         let width = (config.fpm.values.map(\.maxChildren) + [FpmPool().maxChildren]).min()!
-        let state = OSAllocatedUnfairLock(initialState: (next: 0, results: [Int: (status: Int, text: String)]()))
+        let state = OSAllocatedUnfairLock(initialState: (next: 0, done: 0, results: [Int: (status: Int, text: String)]()))
         DispatchQueue.concurrentPerform(iterations: max(1, min(width, list.count))) { _ in
             while let i = state.withLock({ s -> Int? in
                 guard s.next < list.count else { return nil }
@@ -1133,7 +1133,11 @@ final class Corral: @unchecked Sendable {
                 return s.next
             }) {
                 let result = request(list[i], log: nil)
-                state.withLock { s in s.results[i] = result }
+                state.withLock { s in
+                    s.results[i] = result
+                    s.done += 1
+                    progress(s.done, list.count)
+                }
             }
         }
         let results = state.withLock { $0.results }

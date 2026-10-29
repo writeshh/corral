@@ -168,7 +168,9 @@ final class Model: ObservableObject {
         run("Moving from Herd") { c in
             if removeLoginItem { try Corral.setHerdLoginItem(false) }
             _ = try c.importHerd()
-            let problems = try c.finishHerdMove()
+            let problems = try c.finishHerdMove { done, total in
+                Task { @MainActor in if self.busy != nil { self.busy = "Checking sites \(done)/\(total)" } }
+            }
             let text = problems.isEmpty ? "Moved from Herd. Every site answers."
                 : "Moved from Herd. These sites need attention: " + problems.map { "\($0.site) (\($0.problem))" }.joined(separator: ", ")
             Task { @MainActor in self.notice = text }
