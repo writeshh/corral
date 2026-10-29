@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>Corral</title>
+  <defs>
+    <path id="c" d="M207.67 82 L128 36 L48.33 82 L48.33 174 L128 220 L207.67 174" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <!-- macOS icon grid: 824 px rounded square inside the 1024 px canvas -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#111111" filter="url(#shadow)"/>
+  <!-- Hex C on a 256 grid, scaled 2.5x. Thin outlines step down under it, like stacked arcs. -->
+  <g transform="translate(192 162) scale(2.5)">
+      <use href="#c" transform="translate(0 30)" stroke="#ECEDE7" stroke-width="28"/><use href="#c" transform="translate(0 30)" stroke="#111111" stroke-width="25.4"/>
+      <use href="#c" transform="translate(0 25)" stroke="#ECEDE7" stroke-width="28"/><use href="#c" transform="translate(0 25)" stroke="#111111" stroke-width="25.4"/>
+      <use href="#c" transform="translate(0 20)" stroke="#ECEDE7" stroke-width="28"/><use href="#c" transform="translate(0 20)" stroke="#111111" stroke-width="25.4"/>
+      <use href="#c" transform="translate(0 15)" stroke="#ECEDE7" stroke-width="28"/><use href="#c" transform="translate(0 15)" stroke="#111111" stroke-width="25.4"/>
+      <use href="#c" transform="translate(0 10)" stroke="#ECEDE7" stroke-width="28"/><use href="#c" transform="translate(0 10)" stroke="#111111" stroke-width="25.4"/>
+      <use href="#c" transform="translate(0 5)" stroke="#ECEDE7" stroke-width="28"/><use href="#c" transform="translate(0 5)" stroke="#111111" stroke-width="25.4"/>
+    <use href="#c" stroke="#ECEDE7" stroke-width="28"/>
+    <path d="M128 98 L154 113 L154 143 L128 158 L102 143 L102 113 Z" fill="#DF5D09" stroke="#DF5D09" stroke-width="4" stroke-linejoin="round"/>
+  </g>
+</svg>

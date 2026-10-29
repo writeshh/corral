@@ -212,6 +212,7 @@ struct CorralApp: App {
 
     init() {
         Dock.update()
+        Dock.followAppearance()
         let center = NotificationCenter.default
         center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { Dock.update() }
@@ -244,6 +245,20 @@ struct CorralApp: App {
         guard app.activationPolicy() != policy else { return }
         app.setActivationPolicy(policy)
         if policy == .regular && open { app.activate() } // a new Dock icon starts behind the frontmost app
+    }
+
+    private static var appearance: NSKeyValueObservation?
+
+    /// Uses AppIcon-Dark in dark mode. This changes the Dock and ⌘-Tab icon only:
+    /// Finder shows the light AppIcon.icns, because a dark variant in the bundle needs Xcode's asset compiler.
+    static func followAppearance() {
+        appearance = NSApplication.shared.observe(\.effectiveAppearance, options: [.initial]) { _, _ in
+            MainActor.assumeIsolated {
+                let app = NSApplication.shared
+                let dark = app.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                app.applicationIconImage = dark ? Bundle.main.image(forResource: "AppIcon-Dark") : nil
+            }
+        }
     }
 }
 
