@@ -6,6 +6,12 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-02
+
+### Fixed
+
+- A site address without a trailing slash, for example `https://shop.test/wp-admin`, redirects to the same host. Before, the redirect added the internal port 8543 or 8180, and the page did not load.
+
 ## [0.3.0] - 2026-11-02
 
 ### Added
@@ -95,7 +101,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The menu bar panel shrinks after a banner closes, and the site list text is sharp.
 - Port numbers show without a thousands separator, for example 2525.
 
-[Unreleased]: https://github.com/writeshh/corral/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/writeshh/corral/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/writeshh/corral/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/writeshh/corral/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/writeshh/corral/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/writeshh/corral/releases/tag/v0.1.0
