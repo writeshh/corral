@@ -88,6 +88,15 @@ final class LogState: ObservableObject {
     }
     @Published var picking = false // the site search popover is open
     @Published var query = ""
+    var browser: String? // bundle id of the browser used last
+    var browserHost = "" // the host the browser showed at the last check, so a manual pick stays until the browser moves
+
+    init() {
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            let id = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
+            MainActor.assumeIsolated { if let id, Corral.browsers.contains(where: { $0.id == id }) { self?.browser = id } }
+        }
+    }
     @Published private(set) var text = ""
     private var cleared: [String: Int] = [:] // path -> file size when the user clicked Clear
     private var timer: Timer?
@@ -237,6 +246,7 @@ struct DumpsView: View {
 struct LogsView: View {
     @ObservedObject var model: Model
     @ObservedObject var log: LogState
+    @AppStorage("logFollowBrowser") private var followBrowser = false
 
     private var sites: [(name: String, host: String)] {
         [("", "Corral only")] + model.snap.rows.filter { $0.site.proxy == nil }.map { ($0.site.name, $0.host) }
@@ -270,6 +280,17 @@ struct LogsView: View {
         return out
     }
 
+    /// Picks the site that the browser shows. It acts when the browser moves to another host,
+    /// so a site picked by hand stays until then. Hosts that match no site change nothing.
+    private func syncBrowser() async {
+        let bundle = log.browser ?? Corral.browsers.first { !NSRunningApplication.runningApplications(withBundleIdentifier: $0.id).isEmpty }?.id
+        guard let bundle, let host = await Task.detached(operation: { Corral.browserHost(bundle) }).value, host != log.browserHost else { return }
+        log.browserHost = host
+        let corral = Corral()
+        let row = model.snap.rows.first { $0.site.proxy == nil && corral.hostnames($0.site).contains { host == $0 || host.hasSuffix("." + $0) } }
+        if let row { log.site = row.site.name }
+    }
+
     private var files: [String] {
         let corral = Corral()
         return corral.logFiles(model.snap.rows.first { $0.site.name == log.site }?.site)
@@ -290,6 +311,9 @@ struct LogsView: View {
                 .popover(isPresented: $log.picking, arrowEdge: .bottom) {
                     SitePicker(sites: sites, log: log)
                 }
+                Toggle(isOn: $followBrowser) { Image(systemName: "safari") }
+                    .toggleStyle(.button)
+                    .help("Show the logs of the site in your browser. Safari, Chrome, Brave, Edge, Arc, Dia and Vivaldi. macOS asks once to let Corral control the browser.")
                 Picker("File", selection: $log.file) {
                     ForEach(files, id: \.self) { Text(($0 as NSString).abbreviatingWithTildeInPath).tag($0) }
                 }
@@ -319,6 +343,13 @@ struct LogsView: View {
         }
         .onAppear { if !files.contains(log.file) { log.file = files.first ?? "" }; log.follow() }
         .onDisappear(perform: log.unfollow)
+        .task(id: followBrowser) {
+            log.browserHost = ""
+            while followBrowser && !Task.isCancelled {
+                await syncBrowser()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
         .onChange(of: log.site) { log.file = files.first ?? "" }
         .onChange(of: log.file) { log.reload() }
     }

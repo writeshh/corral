@@ -6,6 +6,10 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The Logs tab has a "Follow browser" button. It picks the site that your browser shows. It works with Safari, Chrome, Brave, Edge, Arc, Dia, and Vivaldi.
+
 ## [0.2.0] - 2026-10-29
 
 ### Added

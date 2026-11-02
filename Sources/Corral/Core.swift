@@ -1203,6 +1203,21 @@ final class Corral: @unchecked Sendable {
         return out + logsIn(logs).reversed()
     }
 
+    /// Browsers that script the URL of their front tab. Firefox has no scripting support.
+    static let browsers: [(id: String, tab: String)] = [
+        ("com.apple.Safari", "current tab"), ("com.google.Chrome", "active tab"), ("com.brave.Browser", "active tab"),
+        ("com.microsoft.edgemac", "active tab"), ("company.thebrowser.Browser", "active tab"), ("company.thebrowser.dia", "active tab"), ("com.vivaldi.Vivaldi", "active tab")]
+
+    /// The host name in the front tab of a browser. nil when the browser is not running, has no window,
+    /// or the user said no to the Automation prompt.
+    static func browserHost(_ bundle: String) -> String? {
+        guard let tab = browsers.first(where: { $0.id == bundle })?.tab,
+              !NSRunningApplication.runningApplications(withBundleIdentifier: bundle).isEmpty,
+              let url = try? sh("/usr/bin/osascript", ["-e", "tell application id \"\(bundle)\" to get URL of \(tab) of front window"])
+        else { return nil }
+        return URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines))?.host?.lowercased()
+    }
+
     /// The end of a file, at most `bytes` long, from the start of a line.
     static func tail(_ path: String, bytes: UInt64 = 256 * 1024) -> String {
         guard let h = FileHandle(forReadingAtPath: path) else { return "" }
