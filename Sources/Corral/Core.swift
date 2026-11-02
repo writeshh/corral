@@ -427,6 +427,7 @@ final class Corral: @unchecked Sendable {
                 image/x-icon ico; font/woff woff; font/woff2 woff2;
             }
             default_type application/octet-stream;
+            port_in_redirect off; # pf maps 80/443 to the high ports, so nginx must not leak them in redirects
             access_log off;
             sendfile on;
             client_max_body_size 512M;

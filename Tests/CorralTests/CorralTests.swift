@@ -42,6 +42,7 @@ import Testing
     #expect(conf.contains("server_name shop.internal *.shop.internal shop.test *.shop.test;"))
     #expect(conf.contains("listen 127.0.0.1:8543 ssl;"))
     #expect(conf.contains("return 301 https://$host$request_uri;"))
+    #expect(conf.contains("port_in_redirect off;"))
     #expect(conf.contains("php8.4.sock"))
     #expect(conf.contains("root \"\(tmp)/parked/API Docs\";"))
     #expect(conf.components(separatedBy: "listen 127.0.0.1:8543").count == 2) // only shop is secured
