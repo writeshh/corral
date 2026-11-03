@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-26 # Apple silicon. Swift 6.1 on macos-15 crashes while it compiles Corral.
+    runs-on: xcode-27 # Apple silicon, Xcode 27 (Swift 6.4). Swift 6.1 and 6.3 crash while they compile Corral.
     steps:
       - uses: actions/checkout@v4
 
