@@ -632,9 +632,10 @@ final class Corral: @unchecked Sendable {
 
     /// bin/corral, bin/php (global version) and bin/php84 etc. Add bin/ to PATH to use them.
     func writeShims(_ installed: [String: String]) throws {
+        let exe = Self.executable // resolve before removing bin/, it holds the symlink we may run through
         try? FileManager.default.removeItem(atPath: binDir)
         try mkdirs(binDir)
-        if let exe = Bundle.main.executablePath {
+        if let exe {
             try FileManager.default.createSymbolicLink(atPath: binDir + "/corral", withDestinationPath: exe)
         }
         let global = globalPHP(installed)
@@ -651,10 +652,13 @@ final class Corral: @unchecked Sendable {
 
     // MARK: Processes
 
+    /// The real binary. The CLI runs through the bin/corral symlink, and Bundle.main does not follow it.
+    static let executable = Bundle.main.executableURL?.resolvingSymlinksInPath().path
+
     /// Order: CORRAL_<NAME> override, the copy inside Corral.app, then Homebrew.
     func tool(_ name: String) throws -> String {
         if let p = ProcessInfo.processInfo.environment["CORRAL_\(name.uppercased())"] { return p }
-        if let bundled = Bundle.main.resourcePath.map({ "\($0)/bin/\(name)" }),
+        if let bundled = Self.executable.map({ ($0 as NSString).deletingLastPathComponent + "/../Resources/bin/\(name)" }),
            FileManager.default.isExecutableFile(atPath: bundled) { return bundled }
         for dir in ["bin", "sbin"] where FileManager.default.isExecutableFile(atPath: "\(brew)/\(dir)/\(name)") {
             return "\(brew)/\(dir)/\(name)"
