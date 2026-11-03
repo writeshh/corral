@@ -6,10 +6,16 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Added
 
 - Corral looks for a new release on GitHub when it starts and then once a day. It downloads the release, checks the SHA-256 checksum, replaces the app, and opens it again. Settings > About has a switch to turn off the automatic install, a "Check for Updates" button, and an "Update to" button.
 - `corral update` installs the newest release.
+
+### Fixed
+
+- The `corral` command in a terminal finds the nginx and dnsmasq inside Corral.app. Before, it failed with "nginx not found" when it ran through the `bin/corral` link, and it could break that link.
 
 ## [0.3.1] - 2026-11-02
 
@@ -106,7 +112,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The menu bar panel shrinks after a banner closes, and the site list text is sharp.
 - Port numbers show without a thousands separator, for example 2525.
 
-[Unreleased]: https://github.com/writeshh/corral/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/writeshh/corral/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/writeshh/corral/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/writeshh/corral/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/writeshh/corral/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/writeshh/corral/compare/v0.1.0...v0.2.0
