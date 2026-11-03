@@ -12,7 +12,7 @@ struct SettingsView: View {
                 PHPTab(model: model).tabItem { Label("PHP", systemImage: "chevron.left.forwardslash.chevron.right") }
                 SitesTab(model: model).tabItem { Label("Sites", systemImage: "folder") }
                 CertificatesTab(model: model).tabItem { Label("Certificates", systemImage: "lock") }
-                AboutTab().tabItem { Label("About", systemImage: "info.circle") }
+                AboutTab(model: model).tabItem { Label("About", systemImage: "info.circle") }
             }
             StatusLine(model: model)
         }
@@ -394,7 +394,9 @@ struct CertificatesTab: View {
 }
 
 struct AboutTab: View {
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development build" }
+    @ObservedObject var model: Model
+    @AppStorage("autoUpdate") private var autoUpdate = true
+    private var version: String { Corral.appVersion ?? "development build" }
     private var licenses: String? {
         Bundle.main.resourcePath.map { $0 + "/licenses" }.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
     }
@@ -413,6 +415,12 @@ struct AboutTab: View {
             }
             Section {
                 LabeledContent("Version", value: version)
+                Toggle("Install updates automatically", isOn: $autoUpdate)
+                if let update = model.update {
+                    Button("Update to \(update.version)") { model.installUpdate() }.disabled(model.busy != nil)
+                } else {
+                    Button("Check for Updates") { model.checkForUpdate(manual: true) }.disabled(model.busy != nil)
+                }
                 LabeledContent("Telemetry", value: "None")
             }
             Section {

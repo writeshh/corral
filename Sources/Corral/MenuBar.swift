@@ -85,6 +85,7 @@ final class Model: ObservableObject {
     @Published var notice: String?
     @Published var filter = ""
     @Published private(set) var latestPHP: [String: String] = [:] // PHP version -> newest full version in the build list
+    @Published private(set) var update: Corral.Update? // a newer release than this app
 
     private let corral: Corral
     private let queue = DispatchQueue(label: "dev.corral.work") // every Corral call from the app runs here
@@ -92,6 +93,7 @@ final class Model: ObservableObject {
     var running: Bool { snap.services.first?.up ?? false }
 
     private var watchdog: Timer?
+    private var updateTimer: Timer?
 
     init(corral: Corral = Corral()) {
         self.corral = corral
@@ -100,6 +102,10 @@ final class Model: ObservableObject {
         addToPath()
         watchdog = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.repair() }
+        }
+        checkForUpdate()
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 86400, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkForUpdate() }
         }
     }
 
@@ -189,6 +195,46 @@ final class Model: ObservableObject {
         queue.async {
             let latest = ((try? corral.phpManifest()) ?? [:]).compactMapValues { $0["version"] }
             Task { @MainActor in self.latestPHP = latest }
+        }
+    }
+
+    /// Looks for a newer release at launch and once a day. Installs it unless "Install updates automatically" is off.
+    /// manual: a click on "Check for Updates" says so when there is none. A background check stays quiet offline.
+    func checkForUpdate(manual: Bool = false) {
+        guard busy == nil else { return }
+        if manual { busy = "Checking for updates"; error = nil }
+        let corral = corral
+        queue.async {
+            var found: Corral.Update?, message: String?
+            do { found = try corral.availableUpdate() } catch { message = manual ? error.localizedDescription : nil }
+            Task { @MainActor in
+                if manual { self.busy = nil }
+                self.update = found
+                if let message { self.error = message }
+                else if manual && found == nil { self.notice = "Corral is up to date." }
+                if found != nil && UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? true { self.installUpdate() }
+            }
+        }
+    }
+
+    /// Installs the release that checkForUpdate found, then opens the new copy and quits this one.
+    /// The services keep running, and the new copy takes them over like after a login.
+    func installUpdate() {
+        guard let update, busy == nil else { return }
+        busy = "Updating to Corral \(update.version)"; error = nil
+        let corral = corral
+        queue.async {
+            var message: String?
+            do { try corral.installUpdate(update) } catch { message = error.localizedDescription }
+            Task { @MainActor in
+                self.busy = nil
+                if let message { self.error = message; return }
+                let relaunch = Process()
+                relaunch.executableURL = URL(fileURLWithPath: "/bin/sh")
+                relaunch.arguments = ["-c", "sleep 2; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
+                try? relaunch.run()
+                NSApp.terminate(nil)
+            }
         }
     }
 

@@ -60,6 +60,19 @@ To test a local build with Corral:
 It uploads the archives and `manifest.json` to the `php-builds` release.
 To add a PHP version, add it to the workflow matrix and to `Corral.phpChoices`.
 
+## Releases
+
+`.github/workflows/release.yml` builds `Corral.app` and publishes `Corral.zip` when you push a tag such as `v0.4.0`.
+Corral reads these releases to update itself. To make a release:
+
+1. Set the version in `bundle.sh` and move the `Unreleased` section of `CHANGELOG.md` to the new version.
+2. Commit, then tag the commit: `git tag v0.4.0`.
+3. Push the commit and the tag. The workflow fails if the tag and `bundle.sh` do not have the same version.
+
+The release notes are the changelog section of that version.
+
+To test an update, set `CORRAL_RELEASES_URL` to a `file://` JSON list of releases, in the format of the GitHub API.
+
 ## Rules
 
 - Do not add telemetry, analytics, or crash reporting.

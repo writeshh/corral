@@ -27,6 +27,7 @@ enum CLI {
       php:uninstall <ver>          remove a PHP version that Corral installed
       open [site]
       trust                        trust the local CA in your login keychain
+      update                       install the newest release from GitHub
 
     Run with no arguments to launch the menu bar app.
     """
@@ -165,6 +166,10 @@ enum CLI {
                 try corral.uninstallPHP(v)
             case "open":
                 NSWorkspace.shared.open(corral.url(try corral.site(named: arg1)))
+            case "update":
+                guard let update = try corral.availableUpdate() else { print("Corral is up to date."); return 0 }
+                try corral.installUpdate(update)
+                print("Installed Corral \(update.version). Quit and open Corral to use it.")
             case "trust":
                 try corral.ensureCA()
                 try corral.trustCA()

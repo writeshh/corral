@@ -650,6 +650,59 @@ final class Corral: @unchecked Sendable {
         }
     }
 
+    // MARK: Updates
+
+    /// Corral.app that holds the running binary. Bundle.main is wrong when the CLI runs through the bin/corral symlink.
+    static let appBundle: Bundle? = executable.flatMap {
+        let app = URL(fileURLWithPath: $0).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return app.pathExtension == "app" ? Bundle(url: app) : nil
+    }
+    static var appVersion: String? { appBundle?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String }
+
+    struct Update: Sendable { let version: String, url: String, sha256: String }
+
+    /// The newest GitHub release of Corral when it is newer than this app. A build that is not an app bundle (swift run) never updates.
+    func availableUpdate() throws -> Update? {
+        guard let current = Self.appVersion else { return nil }
+        let api = ProcessInfo.processInfo.environment["CORRAL_RELEASES_URL"] ?? "https://api.github.com/repos/writeshh/corral/releases?per_page=10"
+        let text = try sh("/usr/bin/curl", ["-fsSL", "-H", "Accept: application/vnd.github+json", api])
+        return Self.newest(in: (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [[String: Any]] ?? [], than: current)
+    }
+
+    /// `releases` is newest first. Only v1.2.3 tags count: "php-builds" is a release too.
+    static func newest(in releases: [[String: Any]], than current: String) -> Update? {
+        for r in releases where r["draft"] as? Bool != true && r["prerelease"] as? Bool != true {
+            guard let tag = r["tag_name"] as? String, tag.range(of: #"^v\d+\.\d+\.\d+$"#, options: .regularExpression) != nil else { continue }
+            let version = String(tag.dropFirst())
+            guard version.compare(current, options: .numeric) == .orderedDescending else { return nil }
+            guard let asset = (r["assets"] as? [[String: Any]])?.first(where: { $0["name"] as? String == "Corral.zip" }),
+                  let url = asset["browser_download_url"] as? String,
+                  let digest = asset["digest"] as? String, digest.hasPrefix("sha256:") else { continue }
+            return Update(version: version, url: url, sha256: String(digest.dropFirst(7)))
+        }
+        return nil
+    }
+
+    /// Downloads Corral.zip, checks its SHA-256 from the release, and swaps it in for the installed app.
+    /// The running copy keeps working. The new one runs after a relaunch.
+    func installUpdate(_ update: Update) throws {
+        let fm = FileManager.default
+        guard let app = Self.appBundle?.bundleURL else { throw CorralError("Corral can update only the installed app.") }
+        let tmp = fm.temporaryDirectory.appendingPathComponent("corral-update-\(UUID().uuidString)")
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        let zip = tmp.appendingPathComponent("Corral.zip").path
+        try sh("/usr/bin/curl", ["-fsSL", update.url, "-o", zip])
+        let actual = try sh("/usr/bin/shasum", ["-a", "256", zip]).split(separator: " ").first.map(String.init)
+        guard actual == update.sha256 else { throw CorralError("Checksum mismatch for Corral \(update.version). Corral did not install it.") }
+        try sh("/usr/bin/ditto", ["-x", "-k", zip, tmp.path])
+        let fresh = tmp.appendingPathComponent("Corral.app")
+        guard Bundle(url: fresh)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == update.version else {
+            throw CorralError("The download is not Corral \(update.version). Corral did not install it.")
+        }
+        _ = try fm.replaceItemAt(app, withItemAt: fresh)
+    }
+
     // MARK: Processes
 
     /// The real binary. The CLI runs through the bin/corral symlink, and Bundle.main does not follow it.

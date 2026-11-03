@@ -466,3 +466,16 @@ import Testing
     #expect(try c.removeFromPath(zshrc))
     #expect(try String(contentsOfFile: zshrc, encoding: .utf8) == "export PATH=\"/opt/x:\(c.binDir):$PATH\"\nalias ll=ls\n")
 }
+
+@Test func updateIgnoresOtherReleasesAndOldVersions() {
+    func release(_ tag: String, sha: String? = "sha256:abc") -> [String: Any] {
+        ["tag_name": tag, "assets": [["name": "Corral.zip", "browser_download_url": "https://x/\(tag)", "digest": sha as Any]]]
+    }
+    let builds: [String: Any] = ["tag_name": "php-builds", "assets": []]
+    let newest = Corral.newest(in: [builds, release("v0.10.0"), release("v0.3.1")], than: "0.9.0")
+    #expect(newest?.version == "0.10.0") // 0.10 is newer than 0.9
+    #expect(newest?.sha256 == "abc")
+    #expect(Corral.newest(in: [builds, release("v0.3.1")], than: "0.3.1") == nil)
+    #expect(Corral.newest(in: [release("v0.4.0", sha: nil)], than: "0.3.1") == nil) // no checksum, no install
+    #expect(Corral.newest(in: [release("v0.4.0", sha: nil), release("v0.3.5")], than: "0.3.1")?.version == "0.3.5")
+}

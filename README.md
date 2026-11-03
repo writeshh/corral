@@ -5,7 +5,7 @@ It serves each project folder at its own domain, for example `http://blog.test`.
 Corral is a menu bar app and a command-line tool in one binary.
 
 Corral does not collect telemetry.
-Corral connects to the internet only when you install a PHP version.
+Corral connects to the internet only to install a PHP version and to look for a new release of Corral on GitHub.
 
 ## Features
 
@@ -93,6 +93,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral restart` | Stop and start all services. |
 | `corral status` | Show the state of each service. |
 | `corral trust` | Add the local CA to your login keychain. |
+| `corral update` | Install the newest release from GitHub. |
 | `corral install` | Configure DNS and ports 80 and 443. |
 | `corral takeover` | Send `.test` to Corral in place of Laravel Herd. |
 | `corral handback` | Give `.test` back to Laravel Herd. |
@@ -101,6 +102,14 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral uninstall` | Remove the system configuration. |
 
 If you do not give a site name, Corral uses the site in the current folder.
+
+## Updates
+
+Corral looks for a new release in the GitHub releases of this repository when it starts and then once a day.
+Corral downloads `Corral.zip`, checks its SHA-256 checksum against the checksum of the release, replaces the app, and opens it again.
+The services keep running during the update.
+Settings > About has a switch to turn off the automatic install. Then the "Update to" button installs the release when you click it.
+`corral update` does the same from a terminal. Quit and open Corral to use the new version.
 
 ## PHP
 

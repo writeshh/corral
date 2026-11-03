@@ -6,6 +6,11 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Corral looks for a new release on GitHub when it starts and then once a day. It downloads the release, checks the SHA-256 checksum, replaces the app, and opens it again. Settings > About has a switch to turn off the automatic install, a "Check for Updates" button, and an "Update to" button.
+- `corral update` installs the newest release.
+
 ## [0.3.1] - 2026-11-02
 
 ### Fixed
