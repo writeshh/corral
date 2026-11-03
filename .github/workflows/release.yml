@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-15 # Apple silicon, Swift 6 (macos-14 has Swift 5.10)
+    runs-on: macos-26 # Apple silicon. Swift 6.1 on macos-15 crashes while it compiles Corral.
     steps:
       - uses: actions/checkout@v4
 
