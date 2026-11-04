@@ -28,9 +28,14 @@ if [ ! -x spc ]; then
     tar xzf spc.tar.gz && rm spc.tar.gz
 fi
 
+# A build for another version leaves its sources behind, and static-php-cli would reuse them.
+# The download cache stays, except for the PHP source. The cache holds one PHP version, and it would
+# also hide new patch releases from the weekly build.
+rm -rf source buildroot
+
 # Installs missing build tools with Homebrew (for example bison and re2c).
 ./spc doctor --auto-fix --no-interaction
-./spc download --with-php="$MINOR" --for-extensions="$EXTS" --for-libs="$LIBS" --prefer-pre-built --retry=3
+./spc download --with-php="$MINOR" --for-extensions="$EXTS" --for-libs="$LIBS" --prefer-pre-built --retry=3 --ignore-cache-sources=php-src
 # Corral passes php.ini with -c. An empty scan folder stops PHP from reading /usr/local/etc/php/conf.d.
 ./spc build "$EXTS" --with-libs="$LIBS" --build-cli --build-fpm \
     --with-config-file-path=/usr/local/etc/corral-php --with-config-file-scan-dir= --no-interaction
