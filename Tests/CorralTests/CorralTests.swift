@@ -479,3 +479,20 @@ import Testing
     #expect(Corral.newest(in: [release("v0.4.0", sha: nil)], than: "0.3.1") == nil) // no checksum, no install
     #expect(Corral.newest(in: [release("v0.4.0", sha: nil), release("v0.3.5")], than: "0.3.1")?.version == "0.3.5")
 }
+
+@Test func wpSetupSteps() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+
+    let fresh = CLI.wpSetupSteps(name: "crm.pigment", host: "crm.pigment.test", dir: tmp)
+    #expect(fresh[0].last == "CREATE DATABASE IF NOT EXISTS `wp_crm_pigment`")
+    #expect(fresh.contains(["wp", "core", "download", "--skip-content"]))
+    #expect(fresh.contains { $0.starts(with: ["wp", "config", "create", "--dbname=wp_crm_pigment"]) })
+    #expect(fresh.contains { $0.contains("--url=https://crm.pigment.test") })
+
+    // A folder that already has WordPress and a config keeps both.
+    for f in ["wp-load.php", "wp-config.php"] { FileManager.default.createFile(atPath: tmp + "/" + f, contents: nil) }
+    let again = CLI.wpSetupSteps(name: "crm.pigment", host: "crm.pigment.test", dir: tmp)
+    #expect(!again.contains { $0.starts(with: ["wp", "core", "download"]) || $0.starts(with: ["wp", "config", "create"]) })
+}

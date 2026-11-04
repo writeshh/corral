@@ -87,6 +87,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral php:list` | List the installed PHP versions. |
 | `corral php:install <version>` | Download and install a PHP version, for example `8.4`. |
 | `corral php:uninstall <version>` | Remove a PHP version that Corral installed. |
+| `corral wp:setup [name]` | Set up WordPress in the current folder. See [WordPress setup](#wordpress-setup). |
 | `corral open [site]` | Open a site in the browser. |
 | `corral start` | Start nginx, dnsmasq, and PHP-FPM. |
 | `corral stop` | Stop all services. |
@@ -188,6 +189,21 @@ This works for most PHP frameworks.
 ## WordPress
 
 Corral finds WordPress when the document root contains `wp-load.php` or `wp-config.php`.
+
+### WordPress setup
+
+Run `corral wp:setup [name]` in a folder that holds a WordPress project, for example a clone that tracks only `wp-content`.
+The name defaults to the folder name. The command needs `wp` (WP-CLI) and `mysql` in `PATH`.
+
+1. Serve the folder as `<name>.test` over HTTPS.
+2. Create the database `wp_<name>` on the local MySQL server. The user is `root`, with no password.
+3. Download WordPress core with `wp core download --skip-content`. Corral skips this step when `wp-load.php` exists.
+4. Create `wp-config.php`. Corral skips this step when the file exists.
+5. Install WordPress with the user `admin` and the password `admin`.
+6. Turn on `WP_DEBUG`, `WP_DEBUG_LOG`, `WP_DEBUG_DISPLAY`, `SCRIPT_DEBUG`, and `DISABLE_WP_CRON`, and set `ENVIRONMENT` to `DEV`.
+7. Open `/wp-admin` in the browser.
+
+Use this command for local development only. The admin password is not secret.
 For WordPress sites, Corral adds the nginx rules for multisite in subdirectories.
 Multisite with subdomains also works, because each site answers `*.<site>.test`.
 

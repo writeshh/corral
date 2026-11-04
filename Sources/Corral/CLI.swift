@@ -25,6 +25,8 @@ enum CLI {
       php:list                     installed PHP versions (Corral builds only)
       php:install <ver>            download a static PHP build, for example 8.4
       php:uninstall <ver>          remove a PHP version that Corral installed
+      wp:setup [name]              set up WordPress in the current folder: database, core, config, HTTPS,
+                                   debug settings. Needs `wp` and `mysql` in PATH.
       open [site]
       trust                        trust the local CA in your login keychain
       update                       install the newest release from GitHub
@@ -166,6 +168,15 @@ enum CLI {
                 try corral.uninstallPHP(v)
             case "open":
                 NSWorkspace.shared.open(corral.url(try corral.site(named: arg1)))
+            case "wp:setup":
+                let name = Corral.slug(arg1 ?? (cwd as NSString).lastPathComponent)
+                corral.config.links[name] = cwd
+                try corral.apply()
+                try corral.setSecure(try corral.site(named: name), true)
+                let host = "\(name).\(corral.config.tld)"
+                for step in wpSetupSteps(name: name, host: host, dir: cwd) { try runLive(step) }
+                print("https://\(host)/wp-admin  (user admin, password admin)")
+                NSWorkspace.shared.open(URL(string: "https://\(host)/wp-admin")!)
             case "update":
                 guard let update = try corral.availableUpdate() else { print("Corral is up to date."); return 0 }
                 try corral.installUpdate(update)
@@ -190,6 +201,35 @@ enum CLI {
         guard isatty(STDIN_FILENO) != 0 else { return false }
         print("\(question) [y/N] ", terminator: "")
         return ["y", "yes"].contains(readLine()?.lowercased() ?? "")
+    }
+
+    /// The commands of `corral wp:setup`, in order. Each one runs through `env`, so `wp` and `mysql` come from PATH.
+    /// Core and config are skipped when the folder already has them, so a rerun never overwrites a wp-config.php.
+    static func wpSetupSteps(name: String, host: String, dir: String) -> [[String]] {
+        let db = "wp_" + String(name.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "_" })
+        let has = { FileManager.default.fileExists(atPath: dir + "/" + $0) }
+        var steps = [["mysql", "-u", "root", "-e", "CREATE DATABASE IF NOT EXISTS `\(db)`"]]
+        if !has("wp-load.php") { steps.append(["wp", "core", "download", "--skip-content"]) }
+        if !has("wp-config.php") {
+            steps.append(["wp", "config", "create", "--dbname=\(db)", "--dbuser=root", "--dbpass=", "--dbhost=127.0.0.1", "--dbprefix=wp_", "--locale=en_US"])
+        }
+        steps.append(["wp", "core", "install", "--url=https://\(host)", "--title=\(name)", "--admin_user=admin", "--admin_password=admin",
+                      "--admin_email=admin@\(host)", "--skip-email"])
+        for key in ["WP_DEBUG", "WP_DEBUG_LOG", "WP_DEBUG_DISPLAY", "SCRIPT_DEBUG", "DISABLE_WP_CRON"] {
+            steps.append(["wp", "config", "set", key, "true", "--raw"])
+        }
+        steps.append(["wp", "config", "set", "ENVIRONMENT", "DEV"])
+        return steps
+    }
+
+    /// Runs a command in the current folder with the terminal attached, so the user sees its output.
+    static func runLive(_ argv: [String]) throws {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = argv
+        try p.run()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { throw CorralError("\(argv.prefix(3).joined(separator: " ")) failed (exit \(p.terminationStatus))") }
     }
 
     static func absolute(_ path: String, _ cwd: String) -> String {

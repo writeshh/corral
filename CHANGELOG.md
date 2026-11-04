@@ -6,6 +6,10 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `corral wp:setup [name]` sets up WordPress in the current folder: database, core files, `wp-config.php`, HTTPS, and debug settings.
+
 ## [0.4.0] - 2026-11-03
 
 ### Added
