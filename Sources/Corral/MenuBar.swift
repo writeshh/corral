@@ -36,6 +36,7 @@ struct Snapshot: Sendable {
     var herdFound = false
     var dumps = false
     var mail = false
+    var portless: [PortlessApp] = []
 
     init() {}
 
@@ -59,6 +60,7 @@ struct Snapshot: Sendable {
         herdFound = Corral.herdFound
         dumps = c.config.dumps
         mail = c.config.mail
+        portless = Corral.portlessApps()
         aliases = c.config.aliases
         ownsTest = c.ownsTest
         home = c.home
@@ -424,6 +426,7 @@ struct Panel: View {
             else if !model.snap.installed { setupBanner }
             Divider().padding(.top, 10)
             sites
+            if !model.snap.portless.isEmpty { portlessSection }
             Divider()
             footer
         }
@@ -534,6 +537,40 @@ struct Panel: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// Apps that portless serves. Corral does not serve them, so they get their own short list.
+    private var portlessSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Divider().padding(.bottom, 4)
+            Text("portless").font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(.horizontal, 14)
+            ForEach(model.snap.portless) { app in
+                Button { NSWorkspace.shared.open(app.url) } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "bolt.horizontal").foregroundStyle(.secondary).frame(width: 20)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(app.host).font(.body.weight(.medium)).lineLimit(1)
+                            Text("localhost:\(app.port)" + (app.isAlias ? " (alias)" : "")).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button("Open in Browser") { NSWorkspace.shared.open(app.url) }
+                    Button("Copy URL") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(app.url.absoluteString, forType: .string)
+                    }
+                }
+                .help("Open \(app.url.absoluteString)")
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.bottom, 6)
     }
 
     /// Sites under the parked folder that holds them, in parked order. Linked folders and proxies come last.

@@ -505,3 +505,22 @@ import Testing
     #expect(env.contains("\nDB_DATABASE=shop\n") && env.contains("\nDB_PASSWORD=\n") && !env.contains("# DB_"))
     #expect(CLI.dbName("", "crm.pigment") == "crm_pigment")
 }
+
+@Test func portlessRoutes() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+    #expect(Corral.portlessApps(dir: tmp).isEmpty) // no routes.json: portless is not installed or has no apps
+
+    let routes = #"[{"hostname":"web.localhost","port":4001,"pid":111,"registeredAt":1},{"hostname":"gone.localhost","port":4002,"pid":222,"registeredAt":1},{"hostname":"db.localhost","port":5432,"pid":0,"registeredAt":1}]"#
+    try routes.write(toFile: tmp + "/routes.json", atomically: true, encoding: .utf8)
+    let apps = Corral.portlessApps(dir: tmp, alive: { $0 == 111 })
+    #expect(apps.map(\.host) == ["db.localhost", "web.localhost"]) // the stopped app is left out, the alias stays
+    #expect(apps.map(\.isAlias) == [true, false])
+    #expect(apps[1].url.absoluteString == "https://web.localhost") // no proxy.port: HTTPS on 443
+
+    try "1355".write(toFile: tmp + "/proxy.port", atomically: true, encoding: .utf8)
+    #expect(Corral.portlessURL(host: "web.localhost", dir: tmp)?.absoluteString == "http://web.localhost:1355")
+    FileManager.default.createFile(atPath: tmp + "/proxy.tls", contents: nil)
+    #expect(Corral.portlessURL(host: "web.localhost", dir: tmp)?.absoluteString == "https://web.localhost:1355")
+}

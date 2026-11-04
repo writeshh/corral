@@ -135,6 +135,7 @@ enum CLI {
                     let detail = s.proxy == nil ? "php \(corral.php(for: s, installed) ?? "-")\t\(s.docroot)" : "proxy\t\(s.path)"
                     print("\(corral.url(s).absoluteString)\t\(detail)")
                 }
+                for app in Corral.portlessApps() { print("\(app.url.absoluteString)\tportless\tlocalhost:\(app.port)") }
             case "secured":
                 let renewed = try corral.renewCertificates()
                 if !renewed.isEmpty { print("Renewed: \(renewed.joined(separator: ", "))") }

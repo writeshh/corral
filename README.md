@@ -77,7 +77,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral unlink [name]` | Remove a linked site. |
 | `corral proxy <name> <url>` | Serve a development server as `<name>.test`. |
 | `corral unproxy <name>` | Remove a proxy site. |
-| `corral sites` | List all sites with their URL, PHP version, and document root. |
+| `corral sites` | List all sites with their URL, PHP version, and document root. Also lists portless apps. |
 | `corral secure [site]` | Serve a site over HTTPS. |
 | `corral unsecure [site]` | Serve a site over HTTP. |
 | `corral secured` | List secured sites with the expiry date of each certificate. |
@@ -287,6 +287,13 @@ Then open `http://shop.test`.
 If Herd has `.test`, give Corral a second TLD, for example `internal`, and open `http://shop.internal`.
 For `.localhost` URLs, Corral connects to `127.0.0.1` and sends the original name.
 portless needs the name to select the app.
+
+Corral also lists the apps that portless serves.
+The panel shows them in a "portless" section, and `corral sites` prints them with the word `portless`.
+Click an app to open its address.
+Corral reads the route file `~/.portless/routes.json` (or the folder in `PORTLESS_STATE_DIR`) and the proxy settings next to it.
+It does not start portless, and it does not serve these apps.
+It hides an app when its process has stopped.
 
 ## Site settings
 
