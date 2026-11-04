@@ -6,6 +6,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-04
+
 ### Added
 
 - `corral wp:setup [name]` sets up WordPress in the current folder: database, core files, `wp-config.php`, HTTPS, and debug settings.
@@ -122,7 +124,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The menu bar panel shrinks after a banner closes, and the site list text is sharp.
 - Port numbers show without a thousands separator, for example 2525.
 
-[Unreleased]: https://github.com/writeshh/corral/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/writeshh/corral/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/writeshh/corral/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/writeshh/corral/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/writeshh/corral/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/writeshh/corral/compare/v0.2.0...v0.3.0
