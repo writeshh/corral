@@ -140,23 +140,56 @@ import Testing
     #expect(shim.hasSuffix(" \"$@\"\n"))
     #expect(FileManager.default.isExecutableFile(atPath: c.binDir + "/php84"))
 
-    // Composer, WP-CLI, and the Laravel installer run on the global PHP.
+    // Composer, WP-CLI, and the Laravel installer run on the global PHP. An updated copy in tools/ wins over the bundled one.
     let phars = tmp + "/phar"
     try c.mkdirs(phars)
     try c.writeShims(["8.4": fpm], pharDir: phars)
     let wp = try String(contentsOfFile: c.binDir + "/wp", encoding: .utf8)
-    #expect(wp.hasPrefix("#!/bin/sh\nexec \"\(c.phpDir)/8.4/php\" ") && wp.hasSuffix(" \"\(phars)/wp-cli.phar\" \"$@\"\n"))
-    #expect(try String(contentsOfFile: c.binDir + "/composer", encoding: .utf8).contains(" \"\(phars)/composer.phar\" "))
-    let laravel = try String(contentsOfFile: c.binDir + "/laravel", encoding: .utf8)
-    #expect(laravel.contains("corral laravel:update") && laravel.hasSuffix(" \"\(c.laravelDir)/vendor/bin/laravel\" \"$@\"\n"))
-    #expect(FileManager.default.isExecutableFile(atPath: c.binDir + "/laravel"))
-    // The shim for the Laravel installer tells the user what to run when it is missing.
+    #expect(wp.hasPrefix("#!/bin/sh\np=\"\(c.toolsDir)/wp-cli.phar\"\n[ -f \"$p\" ] || p=\"\(phars)/wp-cli.phar\"\n"))
+    #expect(wp.contains("Run: corral tools:update wp") && wp.contains("\"-d\" \"error_reporting=8191\" \"$p\" \"$@\"\n"))
+    #expect(wp.contains("exec \"\(c.phpDir)/8.4/php\" "))
+    for name in ["composer", "wp", "laravel"] { #expect(FileManager.default.isExecutableFile(atPath: c.binDir + "/" + name)) }
+    // Without the phar, the shim says what to run.
     let missing = try Process.run(URL(fileURLWithPath: c.binDir + "/laravel"), arguments: [])
     missing.waitUntilExit()
     #expect(missing.terminationStatus == 1)
-    // No bundled phars: only the Laravel shim stays.
+    // No bundled phars: the shims look only in tools/.
     try c.writeShims(["8.4": fpm], pharDir: nil)
-    #expect(!FileManager.default.fileExists(atPath: c.binDir + "/wp") && FileManager.default.fileExists(atPath: c.binDir + "/laravel"))
+    #expect(!(try String(contentsOfFile: c.binDir + "/wp", encoding: .utf8)).contains(phars))
+}
+
+@Test func toolReleasesAndInstall() throws {
+    // Composer: the newest stable version and the checksum file of its phar.
+    let composer = try Corral.composerRelease(#"{"stable": [{"path": "/download/2.11.1/composer.phar", "version": "2.11.1"}, {"path": "/download/2.9.0/composer.phar", "version": "2.9.0"}]}"#) {
+        #expect($0 == "https://getcomposer.org/download/2.11.1/composer.phar.sha256sum")
+        return "ab"
+    }
+    #expect(composer == Corral.ToolRelease(version: "2.11.1", url: "https://getcomposer.org/download/2.11.1/composer.phar", sha256: "ab"))
+    let wp = try Corral.wpRelease(#"{"tag_name": "v2.12.0"}"#) { _ in "cd" }
+    #expect(wp.url == "https://github.com/wp-cli/wp-cli/releases/download/v2.12.0/wp-cli-2.12.0.phar" && wp.version == "2.12.0")
+    #expect(throws: CorralError.self) { try Corral.wpRelease(#"{"tag_name": "nightly"}"#) { _ in "" } }
+    let laravel = try Corral.laravelRelease(#"{"laravel": {"version": "5.32.0", "file": "laravel.phar", "sha256": "ef"}}"#, base: "https://x/tools")
+    #expect(laravel == Corral.ToolRelease(version: "5.32.0", url: "https://x/tools/laravel.phar", sha256: "ef"))
+    #expect(throws: CorralError.self) { try Corral.laravelRelease(#"{"laravel": {"version": "1", "file": "../evil", "sha256": "ef"}}"#, base: "https://x") }
+
+    // Install: the checksum must match. The tool then reports the new version and counts as an updated copy.
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    try FileManager.default.createDirectory(atPath: tmp + "/src", withIntermediateDirectories: true)
+    try "phar bytes".write(toFile: tmp + "/src/laravel.phar", atomically: true, encoding: .utf8)
+    let sha = try Corral.sh("/usr/bin/shasum", ["-a", "256", tmp + "/src/laravel.phar"]).split(separator: " ").first.map(String.init) ?? ""
+    let c = Corral(home: tmp + "/home")
+    let tool = try #require(Corral.tools.first { $0.name == "laravel" })
+    #expect(c.installedTool(tool) == nil || c.installedTool(tool)?.updated == false) // bundled copy, if any
+    #expect(throws: CorralError.self) { try c.installTool(tool, .init(version: "9.9.9", url: "file://" + tmp + "/src/laravel.phar", sha256: "00")) }
+    #expect(!FileManager.default.fileExists(atPath: c.toolsDir + "/laravel.phar"))
+    #expect(!FileManager.default.fileExists(atPath: c.toolsDir + "/laravel.phar.download"))
+    try c.installTool(tool, .init(version: "9.9.9", url: "file://" + tmp + "/src/laravel.phar", sha256: sha))
+    #expect(try String(contentsOfFile: c.toolsDir + "/laravel.phar", encoding: .utf8) == "phar bytes")
+    #expect(c.installedTool(tool)?.version == "9.9.9" && c.installedTool(tool)?.updated == true)
+    let composerTool = try #require(Corral.tools.first { $0.name == "composer" })
+    try c.installTool(composerTool, .init(version: "2.0.0", url: "file://" + tmp + "/src/laravel.phar", sha256: sha))
+    #expect(Corral.toolVersions(in: c.toolsDir) == ["laravel": "9.9.9", "composer": "2.0.0"]) // one versions.json for all tools
 }
 
 @Test func mysqlSocketDetection() throws {

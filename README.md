@@ -89,7 +89,8 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral php:uninstall <version>` | Remove a PHP version that Corral installed. |
 | `corral wp:setup [name]` | Set up WordPress in the current folder. See [WordPress setup](#wordpress-setup). |
 | `corral laravel:setup [name] [--seed]` | Set up a cloned Laravel project in the current folder. See [Laravel setup](#laravel-setup). |
-| `corral laravel:update` | Install or update the Laravel installer. Run it with `laravel` (see [Bundled tools](#bundled-tools)). |
+| `corral tools` | Show the versions of `composer`, `wp`, and `laravel`. See [Bundled tools](#bundled-tools). |
+| `corral tools:update [name]` | Update `composer`, `wp`, or `laravel` (all by default). |
 | `corral open [site]` | Open a site in the browser. |
 | `corral start` | Start nginx, dnsmasq, and PHP-FPM. |
 | `corral stop` | Stop all services. |
@@ -194,9 +195,12 @@ Corral finds WordPress when the document root contains `wp-load.php` or `wp-conf
 
 ### Bundled tools
 
-`Corral.app` includes Composer and WP-CLI as PHP archives, with a pinned SHA-256 checksum for each. Corral writes the commands `composer` and `wp` to its `bin` folder. They run on the global PHP version, so they need at least one installed PHP.
+`Corral.app` includes Composer, WP-CLI, and the Laravel installer as PHP archives (phars). Corral writes the commands `composer`, `wp`, and `laravel` to its `bin` folder. They run on the global PHP version, so they need at least one installed PHP. Run `corral tools` to see their versions.
 
-The Laravel installer is not part of the app, because it is a Composer package without a release archive. Run `corral laravel:update` once. It installs the package with the bundled Composer into Corral's `laravel` folder, and it needs a network connection. Run the same command again to update. Then `laravel new <name>` works. Before the first install, `laravel` prints a message with this command.
+- **Composer and WP-CLI:** the build downloads a pinned version of each and checks its SHA-256.
+- **Laravel installer:** a GitHub workflow (`.github/workflows/tools.yml`) builds it into one phar with Box, as Herd does. It publishes the phar to the `tools` release with its SHA-256. The app build bundles the newest one. If the release does not exist yet, the app builds without it.
+
+Settings > Tools and `corral tools:update [composer|wp|laravel]` fetch a newer version. The app checks the SHA-256 from the publisher before it installs the file. Composer and WP-CLI come from their own sites. The Laravel installer comes from the `tools` release. The new copy goes to Corral's `tools` folder. The commands use it in place of the copy inside the app. `corral laravel:update` is the same as `corral tools:update laravel`.
 
 The `wp` command hides PHP deprecation notices, because WP-CLI 2.12 prints some of its own on PHP 8.5.
 
@@ -391,6 +395,6 @@ These environment variables change the defaults:
 
 Corral is available under the [MIT License](LICENSE).
 
-`Corral.app` includes nginx, OpenSSL, PCRE2, zlib, dnsmasq, Composer, and WP-CLI.
+`Corral.app` includes nginx, OpenSSL, PCRE2, zlib, dnsmasq, Composer, WP-CLI, and the Laravel installer.
 Their licenses are in `Corral.app/Contents/Resources/licenses/`.
 dnsmasq is GPL software. Its source code is in the same folder.

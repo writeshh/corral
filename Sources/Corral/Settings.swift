@@ -10,6 +10,7 @@ struct SettingsView: View {
             TabView {
                 GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }
                 PHPTab(model: model).tabItem { Label("PHP", systemImage: "chevron.left.forwardslash.chevron.right") }
+                ToolsTab(model: model).tabItem { Label("Tools", systemImage: "wrench.and.screwdriver") }
                 SitesTab(model: model).tabItem { Label("Sites", systemImage: "folder") }
                 CertificatesTab(model: model).tabItem { Label("Certificates", systemImage: "lock") }
                 AboutTab(model: model).tabItem { Label("About", systemImage: "info.circle") }
@@ -291,6 +292,38 @@ final class ProxyDraft: ObservableObject {
     @Published var url = ""
 }
 
+/// Composer, WP-CLI, and the Laravel installer. Corral.app holds one copy of each. An update goes to the tools folder.
+struct ToolsTab: View {
+    @ObservedObject var model: Model
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(Corral.tools) { tool in
+                    let have = model.snap.tools[tool.name]
+                    let latest = model.latestTools[tool.name]
+                    let newer = latest.map { $0.compare(have?.version ?? "0", options: .numeric) == .orderedDescending } ?? false
+                    LabeledContent {
+                        if newer, let latest {
+                            Button(have == nil ? "Install \(latest)" : "Update to \(latest)") {
+                                model.run("Updating \(tool.title)") { try $0.updateTool(tool) }
+                            }
+                            .disabled(model.busy != nil)
+                        }
+                    } label: {
+                        Text(have.map { "\(tool.title) \($0.version)" } ?? tool.title)
+                        Text(have == nil ? "Not installed" : newer ? "Update available" : latest == nil ? (have!.updated ? "Updated copy" : "Bundled with Corral") : "Up to date")
+                    }
+                }
+            } footer: {
+                Text("Run them in a terminal as composer, wp, and laravel, after you put Corral's bin folder in PATH.")
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { model.checkToolUpdates() }
+    }
+}
+
 struct SitesTab: View {
     @ObservedObject var model: Model
     @StateObject private var draft = ProxyDraft()
@@ -429,6 +462,7 @@ struct AboutTab: View {
                 LabeledContent("PHP", value: "PHP License 3.01")
                 LabeledContent("Composer", value: "MIT")
                 LabeledContent("WP-CLI", value: "MIT")
+                LabeledContent("Laravel Installer", value: "MIT")
                 if let licenses {
                     Button("Show Licence Files") { NSWorkspace.shared.open(URL(fileURLWithPath: licenses)) }
                 }

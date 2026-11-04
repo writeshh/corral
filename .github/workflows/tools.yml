@@ -1,0 +1,33 @@
+name: Tools
+
+# Builds the Laravel installer as one phar with Box and publishes it to the "tools" release.
+# Corral.app bundles the newest phar (scripts/fetch-tools.sh), and Settings > Tools updates it
+# from the same release. The app checks the SHA-256 in manifest.json.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1" # every Monday, to pick up new installer releases
+
+permissions:
+  contents: write
+
+jobs:
+  laravel-installer:
+    runs-on: macos-14 # Apple silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PHP
+        run: brew install php
+
+      - name: Build the phar
+        run: ./scripts/build-laravel-installer.sh
+
+      - name: Upload to the tools release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view tools >/dev/null 2>&1 || \
+            gh release create tools --title "Tools" --notes "Command line tools for Corral. Built by .github/workflows/tools.yml."
+          gh release upload tools .deps/laravel-dist/laravel.phar .deps/laravel-dist/manifest.json --clobber

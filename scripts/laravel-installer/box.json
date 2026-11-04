@@ -1,0 +1,15 @@
+{
+    "main": "bin/laravel",
+    "output": "laravel.phar",
+    "directories": ["src"],
+    "files": ["LICENSE.md"],
+    "finder": [
+        {
+            "in": "vendor",
+            "exclude": ["tests", "Tests", "test", "docs"],
+            "notName": ["/^(?!LICENSE).*\\.(md|dist|neon)$/i", "composer.json", "phpunit.xml"]
+        }
+    ],
+    "check-requirements": false,
+    "compression": "GZ"
+}

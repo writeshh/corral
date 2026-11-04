@@ -10,8 +10,9 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `corral wp:setup [name]` sets up WordPress in the current folder: database, core files, `wp-config.php`, HTTPS, and debug settings.
 - `corral laravel:setup [name] [--seed]` sets up a cloned Laravel project: Composer packages, `.env`, app key, database, migrations, npm build, and HTTPS.
-- Corral.app includes Composer and WP-CLI. The commands `composer` and `wp` are in Corral's `bin` folder and run on the global PHP version.
-- `corral laravel:update` installs or updates the Laravel installer with the bundled Composer. The command `laravel` runs it.
+- Corral.app includes Composer, WP-CLI, and the Laravel installer. The commands `composer`, `wp`, and `laravel` are in Corral's `bin` folder and run on the global PHP version.
+- Settings > Tools and `corral tools:update` update these tools. Each download is checked against a SHA-256. `corral tools` shows the versions.
+- A GitHub workflow builds the Laravel installer into one phar and publishes it to the `tools` release.
 - The site menu in the panel has "Set Up WordPress…" and "Set Up Laravel…". They run the steps of `corral wp:setup` and `corral laravel:setup`.
 - The panel and `corral sites` list the apps that portless serves, with their addresses.
 

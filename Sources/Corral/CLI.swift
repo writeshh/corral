@@ -29,7 +29,8 @@ enum CLI {
                                    debug settings. Uses Corral's wp. Needs `mysql` in PATH.
       laravel:setup [name] [--seed]  set up a cloned Laravel project: composer, .env, key, database,
                                    migrations, npm build, HTTPS. Uses Corral's composer. Needs `mysql` in PATH.
-      laravel:update               install or update the Laravel installer (bin/laravel)
+      tools                        versions of composer, wp, and laravel
+      tools:update [name]          update composer, wp, or laravel (all by default). laravel:update is the same for laravel.
       open [site]
       trust                        trust the local CA in your login keychain
       update                       install the newest release from GitHub
@@ -178,9 +179,19 @@ enum CLI {
                 for step in wpSetupSteps(name: name, host: host, dir: cwd) { try runLive(step) }
                 print("https://\(host)/wp-admin  (user admin, password admin)")
                 NSWorkspace.shared.open(URL(string: "https://\(host)/wp-admin")!)
-            case "laravel:update":
-                try corral.updateLaravelInstaller()
-                print("Installed the Laravel installer in \(corral.laravelDir). Run it with: \(corral.binDir)/laravel")
+            case "tools":
+                for tool in Corral.tools {
+                    let have = corral.installedTool(tool)
+                    print("\(tool.name)\t\(have?.version ?? "not installed")\t\(have.map { $0.updated ? "updated copy" : "bundled" } ?? "run: corral tools:update \(tool.name)")")
+                }
+            case "tools:update", "laravel:update":
+                let wanted = args[0] == "laravel:update" ? "laravel" : arg1
+                let list = Corral.tools.filter { wanted == nil || $0.name == wanted }
+                guard !list.isEmpty else { throw CorralError("Unknown tool \(wanted ?? ""). Use composer, wp, or laravel.") }
+                for tool in list {
+                    if let v = try corral.updateTool(tool) { print("Updated \(tool.title) to \(v).") }
+                    else { print("\(tool.title) is up to date (\(corral.installedTool(tool)?.version ?? "")).") }
+                }
             case "laravel:setup":
                 putBinFirst(corral)
                 let (name, host) = try linkAndSecure(corral, args.dropFirst().first { !$0.hasPrefix("--") }, cwd)

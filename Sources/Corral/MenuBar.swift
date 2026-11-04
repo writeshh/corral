@@ -37,6 +37,7 @@ struct Snapshot: Sendable {
     var dumps = false
     var mail = false
     var portless: [PortlessApp] = []
+    var tools: [String: (version: String, updated: Bool)] = [:] // tool name -> the version bin/<tool> runs
 
     init() {}
 
@@ -61,6 +62,7 @@ struct Snapshot: Sendable {
         dumps = c.config.dumps
         mail = c.config.mail
         portless = Corral.portlessApps()
+        tools = Corral.tools.reduce(into: [:]) { $0[$1.name] = c.installedTool($1) }
         aliases = c.config.aliases
         ownsTest = c.ownsTest
         home = c.home
@@ -88,6 +90,7 @@ final class Model: ObservableObject {
     @Published var filter = ""
     @Published private(set) var latestPHP: [String: String] = [:] // PHP version -> newest full version in the build list
     @Published private(set) var update: Corral.Update? // a newer release than this app
+    @Published private(set) var latestTools: [String: String] = [:] // tool name -> newest version
 
     private let corral: Corral
     private let queue = DispatchQueue(label: "dev.corral.work") // every Corral call from the app runs here
@@ -197,6 +200,17 @@ final class Model: ObservableObject {
         queue.async {
             let latest = ((try? corral.phpManifest()) ?? [:]).compactMapValues { $0["version"] }
             Task { @MainActor in self.latestPHP = latest }
+        }
+    }
+
+    /// Asks for the newest version of each tool, so Settings can offer an update only when there is one. Offline, it stays empty.
+    func checkToolUpdates() {
+        let corral = corral
+        queue.async {
+            var latest: [String: String] = [:]
+            for tool in Corral.tools { latest[tool.name] = (try? corral.latestRelease(tool))?.version }
+            let found = latest
+            Task { @MainActor in self.latestTools = found.compactMapValues { $0 } }
         }
     }
 
