@@ -14,6 +14,11 @@ SPC_SHA=acf2f25d56d0cbf8e65aa82e5054fef555f7be7c5c38046c6e0819f266d83225  # spc-
 EXTS="bcmath,bz2,calendar,ctype,curl,dom,exif,fileinfo,filter,ftp,gd,gmp,iconv,igbinary,intl,mbregex,mbstring,mysqli,mysqlnd,opcache,openssl,pcntl,pdo,pdo_mysql,pdo_pgsql,pdo_sqlite,pgsql,phar,posix,readline,redis,session,shmop,simplexml,soap,sockets,sodium,sqlite3,sysvmsg,sysvsem,sysvshm,tokenizer,xml,xmlreader,xmlwriter,xsl,zip,zlib"
 LIBS="freetype,libjpeg,libwebp"
 
+# Xdebug is a shared extension (xdebug.so next to php). Corral loads it only in the debug pool.
+# Herd does the same. 3.5.x supports PHP 8.0 to 8.5.
+XDEBUG_URL=https://xdebug.org/files/xdebug-3.5.3.tgz
+XDEBUG_SHA=f073de91bea046106abf4d6071c963ea71e58571df6ce58948ceca89d121cb2d
+
 ARCH=$(uname -m | sed 's/arm64/aarch64/')
 [ "$ARCH" = aarch64 ] || { echo "Only Apple silicon builds are set up." >&2; exit 1; }
 
@@ -35,18 +40,24 @@ rm -rf source buildroot
 
 # Installs missing build tools with Homebrew (for example bison and re2c).
 ./spc doctor --auto-fix --no-interaction
-./spc download --with-php="$MINOR" --for-extensions="$EXTS" --for-libs="$LIBS" --prefer-pre-built --retry=3 --ignore-cache-sources=php-src
+./spc download --with-php="$MINOR" --for-extensions="$EXTS,xdebug" --for-libs="$LIBS" --prefer-pre-built --retry=3 \
+    --ignore-cache-sources=php-src --custom-url="xdebug:$XDEBUG_URL"
+XDEBUG_FILE=$(ls downloads/xdebug* | head -n 1)
+echo "$XDEBUG_SHA  $XDEBUG_FILE" | shasum -a 256 -c - >/dev/null || { echo "Xdebug checksum does not match." >&2; exit 1; }
 # Corral passes php.ini with -c. An empty scan folder stops PHP from reading /usr/local/etc/php/conf.d.
-./spc build "$EXTS" --with-libs="$LIBS" --build-cli --build-fpm \
+./spc build "$EXTS" --build-shared=xdebug --with-libs="$LIBS" --build-cli --build-fpm \
     --with-config-file-path=/usr/local/etc/corral-php --with-config-file-scan-dir= --no-interaction
 
 VERSION=$(buildroot/bin/php -n -r 'echo PHP_VERSION;')
 case "$VERSION" in "$MINOR".*) ;; *) echo "Built $VERSION, expected $MINOR.x" >&2; exit 1 ;; esac
+# The shared extension must load into the static binaries, or the build is not usable.
+buildroot/bin/php -n -d zend_extension="$PWD/buildroot/modules/xdebug.so" -r 'exit(extension_loaded("xdebug") ? 0 : 1);' \
+    || { echo "xdebug.so does not load." >&2; exit 1; }
 
 STAGE=$(mktemp -d)
-cp buildroot/bin/php buildroot/bin/php-fpm "$STAGE/"
+cp buildroot/bin/php buildroot/bin/php-fpm buildroot/modules/xdebug.so "$STAGE/"
 NAME="php-$VERSION-macos-$ARCH.tar.gz"
-tar czf "$DIST/$NAME" -C "$STAGE" php php-fpm
+tar czf "$DIST/$NAME" -C "$STAGE" php php-fpm xdebug.so
 rm -rf "$STAGE"
 (cd "$DIST" && shasum -a 256 "$NAME" > "$NAME.sha256")
 echo "Built $DIST/$NAME"

@@ -125,7 +125,9 @@ The builds use [static-php-cli](https://static-php.dev), the same tool that Lara
 
 bcmath, bz2, calendar, ctype, curl, dom, exif, fileinfo, filter, ftp, gd (with FreeType, JPEG, and WebP), gmp, iconv, igbinary, intl, mbregex, mbstring, mysqli, mysqlnd, opcache, openssl, pcntl, pdo, pdo_mysql, pdo_pgsql, pdo_sqlite, pgsql, phar, posix, readline, redis, session, shmop, simplexml, soap, sockets, sodium, sqlite3, sysvmsg, sysvsem, sysvshm, tokenizer, xml, xmlreader, xmlwriter, xsl, zip, zlib.
 
-The builds do not include imagick, imap, ldap, mongodb, sqlsrv, or Xdebug.
+The builds do not include imagick, imap, ldap, mongodb, sqlsrv, or FFI.
+
+Each build also has Xdebug 3.5.3 as a shared extension (`xdebug.so` next to `php`). PHP does not load it unless `php.ini` or a command line option asks for it.
 Corral uses only its own builds. It ignores Homebrew PHP, Herd PHP, and other PHP installs.
 To make `php` in a terminal run Corral's build, put Corral's `bin` folder first in `PATH` (see the install steps).
 
@@ -383,7 +385,7 @@ These environment variables change the defaults:
 - Corral has special rules for WordPress only. Use `.corral.json` for frameworks such as Magento.
 - Corral does not manage databases.
 - Insights does not show database queries.
-- The PHP builds do not include Xdebug, so Corral has no debug pool yet.
+- Corral has no debug pool yet. The PHP builds have Xdebug, but nothing loads it.
 
 ## Documentation
 

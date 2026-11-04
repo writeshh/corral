@@ -6,6 +6,10 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The PHP builds include Xdebug 3.5.3 as a shared extension (`xdebug.so` next to `php`). PHP loads it only when `php.ini` asks for it.
+
 ### Fixed
 
 - The PHP build script uses the PHP version that it is asked for. Before, a cached source of another version was reused, and the weekly build did not pick up new patch releases.

@@ -293,7 +293,9 @@ final class Corral: @unchecked Sendable {
         try sh("/usr/bin/tar", ["xzf", tarball, "-C", tmp])
         try fm.removeItem(atPath: tarball)
         try entry["version"]?.write(toFile: tmp + "/VERSION", atomically: true, encoding: .utf8)
-        for bin in ["php", "php-fpm"] { try sh("/usr/bin/codesign", ["--force", "--sign", "-", "\(tmp)/\(bin)"]) }
+        for bin in ["php", "php-fpm", "xdebug.so"] where fm.fileExists(atPath: "\(tmp)/\(bin)") { // older builds have no xdebug.so
+            try sh("/usr/bin/codesign", ["--force", "--sign", "-", "\(tmp)/\(bin)"])
+        }
         if fm.fileExists(atPath: dir + "/php.ini") {
             try fm.moveItem(atPath: dir + "/php.ini", toPath: tmp + "/php.ini") // keep the user's edits on update
         } else {
