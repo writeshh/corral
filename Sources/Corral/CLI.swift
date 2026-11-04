@@ -27,6 +27,8 @@ enum CLI {
       php:uninstall <ver>          remove a PHP version that Corral installed
       wp:setup [name]              set up WordPress in the current folder: database, core, config, HTTPS,
                                    debug settings. Needs `wp` and `mysql` in PATH.
+      laravel:setup [name] [--seed]  set up a cloned Laravel project: composer, .env, key, database,
+                                   migrations, npm build, HTTPS. Needs `composer` in PATH.
       open [site]
       trust                        trust the local CA in your login keychain
       update                       install the newest release from GitHub
@@ -169,14 +171,15 @@ enum CLI {
             case "open":
                 NSWorkspace.shared.open(corral.url(try corral.site(named: arg1)))
             case "wp:setup":
-                let name = Corral.slug(arg1 ?? (cwd as NSString).lastPathComponent)
-                corral.config.links[name] = cwd
-                try corral.apply()
-                try corral.setSecure(try corral.site(named: name), true)
-                let host = "\(name).\(corral.config.tld)"
+                let (name, host) = try linkAndSecure(corral, arg1, cwd)
                 for step in wpSetupSteps(name: name, host: host, dir: cwd) { try runLive(step) }
                 print("https://\(host)/wp-admin  (user admin, password admin)")
                 NSWorkspace.shared.open(URL(string: "https://\(host)/wp-admin")!)
+            case "laravel:setup":
+                let (name, host) = try linkAndSecure(corral, args.dropFirst().first { !$0.hasPrefix("--") }, cwd)
+                try laravelSetup(name: name, host: host, dir: cwd, seed: args.contains("--seed"))
+                print("https://\(host)")
+                NSWorkspace.shared.open(URL(string: "https://\(host)")!)
             case "update":
                 guard let update = try corral.availableUpdate() else { print("Corral is up to date."); return 0 }
                 try corral.installUpdate(update)
@@ -203,10 +206,24 @@ enum CLI {
         return ["y", "yes"].contains(readLine()?.lowercased() ?? "")
     }
 
+    /// Serves the current folder as <name>.<tld> over HTTPS. The name defaults to the folder name.
+    static func linkAndSecure(_ corral: Corral, _ name: String?, _ cwd: String) throws -> (name: String, host: String) {
+        let name = Corral.slug(name ?? (cwd as NSString).lastPathComponent)
+        corral.config.links[name] = cwd
+        try corral.apply()
+        try corral.setSecure(try corral.site(named: name), true)
+        return (name, "\(name).\(corral.config.tld)")
+    }
+
+    /// Site name -> database name: wp_crm.pigment becomes wp_crm_pigment. No dots or dashes, so no quoting problems.
+    static func dbName(_ prefix: String, _ name: String) -> String {
+        prefix + String(name.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "_" })
+    }
+
     /// The commands of `corral wp:setup`, in order. Each one runs through `env`, so `wp` and `mysql` come from PATH.
     /// Core and config are skipped when the folder already has them, so a rerun never overwrites a wp-config.php.
     static func wpSetupSteps(name: String, host: String, dir: String) -> [[String]] {
-        let db = "wp_" + String(name.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "_" })
+        let db = dbName("wp_", name)
         let has = { FileManager.default.fileExists(atPath: dir + "/" + $0) }
         var steps = [["mysql", "-u", "root", "-e", "CREATE DATABASE IF NOT EXISTS `\(db)`"]]
         if !has("wp-load.php") { steps.append(["wp", "core", "download", "--skip-content"]) }
@@ -220,6 +237,42 @@ enum CLI {
         }
         steps.append(["wp", "config", "set", "ENVIRONMENT", "DEV"])
         return steps
+    }
+
+    /// The .env of a fresh clone: .env.example with the URL and a local MySQL database. Commented DB_ lines count.
+    static func laravelEnv(_ example: String, host: String, db: String) -> String {
+        let values = [("APP_URL", "https://\(host)"), ("DB_CONNECTION", "mysql"), ("DB_HOST", "127.0.0.1"), ("DB_PORT", "3306"),
+                      ("DB_DATABASE", db), ("DB_USERNAME", "root"), ("DB_PASSWORD", "")]
+        var text = example
+        for (key, value) in values {
+            text = text.replacingOccurrences(of: "\n# \(key)=", with: "\n\(key)=")
+            text = Corral.setEnv(text, key, value)
+        }
+        return text
+    }
+
+    /// Set up a cloned Laravel project. An existing .env is never touched, so a project that already has a database
+    /// (maybe a remote one) gets only `composer install` and the npm build, and no migrations.
+    static func laravelSetup(name: String, host: String, dir: String, seed: Bool) throws {
+        let fm = FileManager.default
+        let has = { fm.fileExists(atPath: dir + "/" + $0) }
+        if !has("vendor/autoload.php") { try runLive(["composer", "install"]) }
+        if has(".env") {
+            print("Kept the existing .env. Skipped the key, the database, and the migrations.")
+        } else {
+            guard let example = try? String(contentsOfFile: dir + "/.env.example", encoding: .utf8) else {
+                throw CorralError("No .env and no .env.example in \(dir).")
+            }
+            let db = dbName("", name)
+            try laravelEnv(example, host: host, db: db).write(toFile: dir + "/.env", atomically: true, encoding: .utf8)
+            try runLive(["php", "artisan", "key:generate"])
+            try runLive(["mysql", "-u", "root", "-e", "CREATE DATABASE IF NOT EXISTS `\(db)`"])
+            try runLive(["php", "artisan", "migrate"] + (seed ? ["--seed"] : []))
+        }
+        if has("package.json") {
+            try runLive(["npm", "install"])
+            try runLive(["npm", "run", "build"])
+        }
     }
 
     /// Runs a command in the current folder with the terminal attached, so the user sees its output.

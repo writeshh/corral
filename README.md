@@ -88,6 +88,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral php:install <version>` | Download and install a PHP version, for example `8.4`. |
 | `corral php:uninstall <version>` | Remove a PHP version that Corral installed. |
 | `corral wp:setup [name]` | Set up WordPress in the current folder. See [WordPress setup](#wordpress-setup). |
+| `corral laravel:setup [name] [--seed]` | Set up a cloned Laravel project in the current folder. See [Laravel setup](#laravel-setup). |
 | `corral open [site]` | Open a site in the browser. |
 | `corral start` | Start nginx, dnsmasq, and PHP-FPM. |
 | `corral stop` | Stop all services. |
@@ -204,6 +205,21 @@ The name defaults to the folder name. The command needs `wp` (WP-CLI) and `mysql
 7. Open `/wp-admin` in the browser.
 
 Use this command for local development only. The admin password is not secret.
+
+### Laravel setup
+
+Run `corral laravel:setup [name]` in a fresh clone of a Laravel project.
+The name defaults to the folder name. The command needs `composer` in `PATH`, and `mysql` for the database.
+Corral's `php` must come first in `PATH`, because the command runs `php artisan`.
+
+1. Serve the folder as `<name>.test` over HTTPS.
+2. Run `composer install` when the `vendor` folder is missing.
+3. Copy `.env.example` to `.env`. Set `APP_URL` to the HTTPS address, and set `DB_*` to a local MySQL database. The database name is the site name, with `_` in place of dots and dashes. The user is `root`, with no password.
+4. Run `php artisan key:generate`, create the database, and run `php artisan migrate`. Add `--seed` to seed the database.
+5. Run `npm install` and `npm run build` when `package.json` exists.
+6. Open the site in the browser.
+
+If the folder already has a `.env`, Corral does not change it. In this case the command runs only `composer install` and the npm build, because the file can point to a database that Corral must not change.
 For WordPress sites, Corral adds the nginx rules for multisite in subdirectories.
 Multisite with subdomains also works, because each site answers `*.<site>.test`.
 

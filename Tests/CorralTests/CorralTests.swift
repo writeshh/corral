@@ -496,3 +496,12 @@ import Testing
     let again = CLI.wpSetupSteps(name: "crm.pigment", host: "crm.pigment.test", dir: tmp)
     #expect(!again.contains { $0.starts(with: ["wp", "core", "download"]) || $0.starts(with: ["wp", "config", "create"]) })
 }
+
+@Test func laravelEnvForAClone() {
+    let example = "APP_NAME=Laravel\nAPP_URL=http://localhost\nDB_CONNECTION=sqlite\n# DB_HOST=127.0.0.1\n# DB_PORT=3306\n# DB_DATABASE=laravel\n# DB_USERNAME=root\n# DB_PASSWORD=\nMAIL_MAILER=log\n"
+    let env = CLI.laravelEnv(example, host: "shop.test", db: "shop")
+    #expect(env.contains("\nAPP_URL=https://shop.test\n"))
+    #expect(env.contains("\nDB_CONNECTION=mysql\n") && !env.contains("sqlite"))
+    #expect(env.contains("\nDB_DATABASE=shop\n") && env.contains("\nDB_PASSWORD=\n") && !env.contains("# DB_"))
+    #expect(CLI.dbName("", "crm.pigment") == "crm_pigment")
+}

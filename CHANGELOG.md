@@ -9,6 +9,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `corral wp:setup [name]` sets up WordPress in the current folder: database, core files, `wp-config.php`, HTTPS, and debug settings.
+- `corral laravel:setup [name] [--seed]` sets up a cloned Laravel project: Composer packages, `.env`, app key, database, migrations, npm build, and HTTPS.
 
 ## [0.4.0] - 2026-11-03
 
