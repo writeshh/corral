@@ -206,6 +206,9 @@ The name defaults to the folder name. The command needs `wp` (WP-CLI) and `mysql
 
 Use this command for local development only. The admin password is not secret.
 
+The panel runs the same steps. Open the site's "..." menu and choose "Set Up WordPress…". The entry shows only for a site that has `wp-content` or `wp-load.php` but no `wp-config.php`.
+The panel looks for `wp` and `mysql` in `/opt/homebrew/bin` and `/usr/local/bin`, because a menu bar app has a short `PATH`. If a step fails, the panel shows the end of its output.
+
 ### Laravel setup
 
 Run `corral laravel:setup [name]` in a fresh clone of a Laravel project.
@@ -218,6 +221,8 @@ Corral's `php` must come first in `PATH`, because the command runs `php artisan`
 4. Run `php artisan key:generate`, create the database, and run `php artisan migrate`. Add `--seed` to seed the database.
 5. Run `npm install` and `npm run build` when `package.json` exists.
 6. Open the site in the browser.
+
+In the panel, choose "Set Up Laravel…" in the site's "..." menu. The entry shows for a site that has `artisan` and lacks a `.env` or a `vendor` folder. The panel does not seed the database.
 
 If the folder already has a `.env`, Corral does not change it. In this case the command runs only `composer install` and the npm build, because the file can point to a database that Corral must not change.
 For WordPress sites, Corral adds the nginx rules for multisite in subdirectories.

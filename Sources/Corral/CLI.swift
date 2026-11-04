@@ -254,7 +254,7 @@ enum CLI {
 
     /// Set up a cloned Laravel project. An existing .env is never touched, so a project that already has a database
     /// (maybe a remote one) gets only `composer install` and the npm build, and no migrations.
-    static func laravelSetup(name: String, host: String, dir: String, seed: Bool) throws {
+    static func laravelSetup(name: String, host: String, dir: String, seed: Bool, runLive: ([String]) throws -> Void = CLI.runLive) throws {
         let fm = FileManager.default
         let has = { fm.fileExists(atPath: dir + "/" + $0) }
         if !has("vendor/autoload.php") { try runLive(["composer", "install"]) }

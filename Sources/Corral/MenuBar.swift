@@ -830,6 +830,22 @@ struct SiteRow: View {
                 }
             }
         }
+        if site.proxy == nil && Corral.needsWordPressSetup(site.path) {
+            Button("Set Up WordPress…") {
+                model.run("Setting up \(site.name)") { c in
+                    try c.setUpWordPress(site)
+                    Task { @MainActor in model.notice = "WordPress is ready at \(row.host)/wp-admin (user admin, password admin)." }
+                }
+            }
+        }
+        if site.proxy == nil && Corral.needsLaravelSetup(site.path) {
+            Button("Set Up Laravel…") {
+                model.run("Setting up \(site.name)") { c in
+                    try c.setUpLaravel(site)
+                    Task { @MainActor in model.notice = "\(row.host) is set up: dependencies, .env, key, database, migrations." }
+                }
+            }
+        }
         if site.proxy == nil {
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: site.path)]) }
         }

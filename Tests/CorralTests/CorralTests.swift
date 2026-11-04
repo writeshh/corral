@@ -497,6 +497,30 @@ import Testing
     #expect(!again.contains { $0.starts(with: ["wp", "core", "download"]) || $0.starts(with: ["wp", "config", "create"]) })
 }
 
+@Test func setupFromThePanel() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let site = tmp + "/site"
+    try FileManager.default.createDirectory(atPath: site + "/wp-content", withIntermediateDirectories: true)
+    #expect(Corral.needsWordPressSetup(site))
+    #expect(!Corral.needsLaravelSetup(site))
+    FileManager.default.createFile(atPath: site + "/wp-config.php", contents: nil)
+    #expect(!Corral.needsWordPressSetup(site))
+
+    FileManager.default.createFile(atPath: site + "/artisan", contents: nil)
+    #expect(Corral.needsLaravelSetup(site))
+    FileManager.default.createFile(atPath: site + "/.env", contents: nil)
+    try FileManager.default.createDirectory(atPath: site + "/vendor", withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: site + "/vendor/autoload.php", contents: nil)
+    #expect(!Corral.needsLaravelSetup(site))
+
+    // A step runs in the site folder, and a failing step reports its output.
+    let c = Corral(home: tmp + "/home")
+    try c.runStep(["touch", "ran-here"], in: site)
+    #expect(FileManager.default.fileExists(atPath: site + "/ran-here"))
+    #expect(throws: CorralError.self) { try c.runStep(["sh", "-c", "echo boom >&2; exit 3"], in: site) }
+}
+
 @Test func laravelEnvForAClone() {
     let example = "APP_NAME=Laravel\nAPP_URL=http://localhost\nDB_CONNECTION=sqlite\n# DB_HOST=127.0.0.1\n# DB_PORT=3306\n# DB_DATABASE=laravel\n# DB_USERNAME=root\n# DB_PASSWORD=\nMAIL_MAILER=log\n"
     let env = CLI.laravelEnv(example, host: "shop.test", db: "shop")
