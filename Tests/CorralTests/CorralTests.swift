@@ -139,6 +139,24 @@ import Testing
     #expect(shim.hasPrefix("#!/bin/sh\nexec \"\(c.phpDir)/8.4/php\" \"-c\" \"\(c.phpDir)/8.4/php.ini\" "))
     #expect(shim.hasSuffix(" \"$@\"\n"))
     #expect(FileManager.default.isExecutableFile(atPath: c.binDir + "/php84"))
+
+    // Composer, WP-CLI, and the Laravel installer run on the global PHP.
+    let phars = tmp + "/phar"
+    try c.mkdirs(phars)
+    try c.writeShims(["8.4": fpm], pharDir: phars)
+    let wp = try String(contentsOfFile: c.binDir + "/wp", encoding: .utf8)
+    #expect(wp.hasPrefix("#!/bin/sh\nexec \"\(c.phpDir)/8.4/php\" ") && wp.hasSuffix(" \"\(phars)/wp-cli.phar\" \"$@\"\n"))
+    #expect(try String(contentsOfFile: c.binDir + "/composer", encoding: .utf8).contains(" \"\(phars)/composer.phar\" "))
+    let laravel = try String(contentsOfFile: c.binDir + "/laravel", encoding: .utf8)
+    #expect(laravel.contains("corral laravel:update") && laravel.hasSuffix(" \"\(c.laravelDir)/vendor/bin/laravel\" \"$@\"\n"))
+    #expect(FileManager.default.isExecutableFile(atPath: c.binDir + "/laravel"))
+    // The shim for the Laravel installer tells the user what to run when it is missing.
+    let missing = try Process.run(URL(fileURLWithPath: c.binDir + "/laravel"), arguments: [])
+    missing.waitUntilExit()
+    #expect(missing.terminationStatus == 1)
+    // No bundled phars: only the Laravel shim stays.
+    try c.writeShims(["8.4": fpm], pharDir: nil)
+    #expect(!FileManager.default.fileExists(atPath: c.binDir + "/wp") && FileManager.default.fileExists(atPath: c.binDir + "/laravel"))
 }
 
 @Test func mysqlSocketDetection() throws {

@@ -427,6 +427,8 @@ struct AboutTab: View {
                 LabeledContent("nginx", value: "BSD 2-Clause")
                 LabeledContent("dnsmasq", value: "GPL 2 (source included)")
                 LabeledContent("PHP", value: "PHP License 3.01")
+                LabeledContent("Composer", value: "MIT")
+                LabeledContent("WP-CLI", value: "MIT")
                 if let licenses {
                     Button("Show Licence Files") { NSWorkspace.shared.open(URL(fileURLWithPath: licenses)) }
                 }

@@ -1,14 +1,14 @@
 #!/bin/sh
-# Builds Corral.app (menu bar agent, no Dock icon) with nginx and dnsmasq inside.
+# Builds Corral.app (menu bar agent, no Dock icon) with nginx, dnsmasq, Composer, and WP-CLI inside.
 # The same binary is the CLI. Corral links it as bin/corral in its state folder.
 set -e
 cd "$(dirname "$0")"
-[ -x .deps/bin/nginx ] && [ -x .deps/bin/dnsmasq ] || ./scripts/build-deps.sh
+[ -x .deps/bin/nginx ] && [ -x .deps/bin/dnsmasq ] && [ -f .deps/phar/wp-cli.phar ] || ./scripts/build-deps.sh
 swift build -c release
 rm -rf Corral.app
 mkdir -p Corral.app/Contents/MacOS Corral.app/Contents/Resources
 cp .build/release/Corral Corral.app/Contents/MacOS/Corral
-cp -R .deps/bin .deps/licenses Corral.app/Contents/Resources/
+cp -R .deps/bin .deps/phar .deps/licenses Corral.app/Contents/Resources/
 cp Resources/AppIcon.icns Resources/AppIcon-Dark.icns Corral.app/Contents/Resources/ # rebuild with: swift scripts/build-icon.swift
 cat > Corral.app/Contents/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

@@ -89,6 +89,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral php:uninstall <version>` | Remove a PHP version that Corral installed. |
 | `corral wp:setup [name]` | Set up WordPress in the current folder. See [WordPress setup](#wordpress-setup). |
 | `corral laravel:setup [name] [--seed]` | Set up a cloned Laravel project in the current folder. See [Laravel setup](#laravel-setup). |
+| `corral laravel:update` | Install or update the Laravel installer. Run it with `laravel` (see [Bundled tools](#bundled-tools)). |
 | `corral open [site]` | Open a site in the browser. |
 | `corral start` | Start nginx, dnsmasq, and PHP-FPM. |
 | `corral stop` | Stop all services. |
@@ -191,10 +192,18 @@ This works for most PHP frameworks.
 
 Corral finds WordPress when the document root contains `wp-load.php` or `wp-config.php`.
 
+### Bundled tools
+
+`Corral.app` includes Composer and WP-CLI as PHP archives, with a pinned SHA-256 checksum for each. Corral writes the commands `composer` and `wp` to its `bin` folder. They run on the global PHP version, so they need at least one installed PHP.
+
+The Laravel installer is not part of the app, because it is a Composer package without a release archive. Run `corral laravel:update` once. It installs the package with the bundled Composer into Corral's `laravel` folder, and it needs a network connection. Run the same command again to update. Then `laravel new <name>` works. Before the first install, `laravel` prints a message with this command.
+
+The `wp` command hides PHP deprecation notices, because WP-CLI 2.12 prints some of its own on PHP 8.5.
+
 ### WordPress setup
 
 Run `corral wp:setup [name]` in a folder that holds a WordPress project, for example a clone that tracks only `wp-content`.
-The name defaults to the folder name. The command needs `wp` (WP-CLI) and `mysql` in `PATH`.
+The name defaults to the folder name. The command uses Corral's own `wp` (WP-CLI), and needs `mysql` in `PATH`.
 
 1. Serve the folder as `<name>.test` over HTTPS.
 2. Create the database `wp_<name>` on the local MySQL server. The user is `root`, with no password.
@@ -207,13 +216,12 @@ The name defaults to the folder name. The command needs `wp` (WP-CLI) and `mysql
 Use this command for local development only. The admin password is not secret.
 
 The panel runs the same steps. Open the site's "..." menu and choose "Set Up WordPress…". The entry shows only for a site that has `wp-content` or `wp-load.php` but no `wp-config.php`.
-The panel looks for `wp` and `mysql` in `/opt/homebrew/bin` and `/usr/local/bin`, because a menu bar app has a short `PATH`. If a step fails, the panel shows the end of its output.
+The panel finds `mysql` in `/opt/homebrew/bin` and `/usr/local/bin`, because a menu bar app has a short `PATH`. If a step fails, the panel shows the end of its output.
 
 ### Laravel setup
 
 Run `corral laravel:setup [name]` in a fresh clone of a Laravel project.
-The name defaults to the folder name. The command needs `composer` in `PATH`, and `mysql` for the database.
-Corral's `php` must come first in `PATH`, because the command runs `php artisan`.
+The name defaults to the folder name. The command uses Corral's own `composer` and `php`, and needs `mysql` in `PATH` for the database.
 
 1. Serve the folder as `<name>.test` over HTTPS.
 2. Run `composer install` when the `vendor` folder is missing.
@@ -335,7 +343,7 @@ Corral keeps its state in `~/Library/Application Support/Corral`:
 | `logs/` | nginx and PHP-FPM logs |
 | `certs/` | Local CA and site certificates |
 | `php/` | PHP versions that Corral installed |
-| `bin/` | `php` (global version) and `php84`-style commands for each version |
+| `bin/` | `php` (global version), `php84`-style commands for each version, `composer`, `wp`, and `laravel` |
 | `mail/` | Mail that Corral caught, as `.eml` files |
 
 To change the TLD, use Settings > General. The main TLD is in the URLs.
@@ -367,7 +375,7 @@ These environment variables change the defaults:
 
 ## Limitations
 
-- Corral does not include Composer or Node.js.
+- Corral does not include Node.js.
 - Corral has special rules for WordPress only. Use `.corral.json` for frameworks such as Magento.
 - Corral does not manage databases.
 - Insights does not show database queries.
@@ -383,6 +391,6 @@ These environment variables change the defaults:
 
 Corral is available under the [MIT License](LICENSE).
 
-`Corral.app` includes nginx, OpenSSL, PCRE2, zlib, and dnsmasq.
+`Corral.app` includes nginx, OpenSSL, PCRE2, zlib, dnsmasq, Composer, and WP-CLI.
 Their licenses are in `Corral.app/Contents/Resources/licenses/`.
 dnsmasq is GPL software. Its source code is in the same folder.

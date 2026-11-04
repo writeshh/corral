@@ -26,9 +26,10 @@ enum CLI {
       php:install <ver>            download a static PHP build, for example 8.4
       php:uninstall <ver>          remove a PHP version that Corral installed
       wp:setup [name]              set up WordPress in the current folder: database, core, config, HTTPS,
-                                   debug settings. Needs `wp` and `mysql` in PATH.
+                                   debug settings. Uses Corral's wp. Needs `mysql` in PATH.
       laravel:setup [name] [--seed]  set up a cloned Laravel project: composer, .env, key, database,
-                                   migrations, npm build, HTTPS. Needs `composer` in PATH.
+                                   migrations, npm build, HTTPS. Uses Corral's composer. Needs `mysql` in PATH.
+      laravel:update               install or update the Laravel installer (bin/laravel)
       open [site]
       trust                        trust the local CA in your login keychain
       update                       install the newest release from GitHub
@@ -172,11 +173,16 @@ enum CLI {
             case "open":
                 NSWorkspace.shared.open(corral.url(try corral.site(named: arg1)))
             case "wp:setup":
+                putBinFirst(corral)
                 let (name, host) = try linkAndSecure(corral, arg1, cwd)
                 for step in wpSetupSteps(name: name, host: host, dir: cwd) { try runLive(step) }
                 print("https://\(host)/wp-admin  (user admin, password admin)")
                 NSWorkspace.shared.open(URL(string: "https://\(host)/wp-admin")!)
+            case "laravel:update":
+                try corral.updateLaravelInstaller()
+                print("Installed the Laravel installer in \(corral.laravelDir). Run it with: \(corral.binDir)/laravel")
             case "laravel:setup":
+                putBinFirst(corral)
                 let (name, host) = try linkAndSecure(corral, args.dropFirst().first { !$0.hasPrefix("--") }, cwd)
                 try laravelSetup(name: name, host: host, dir: cwd, seed: args.contains("--seed"))
                 print("https://\(host)")
@@ -205,6 +211,11 @@ enum CLI {
         guard isatty(STDIN_FILENO) != 0 else { return false }
         print("\(question) [y/N] ", terminator: "")
         return ["y", "yes"].contains(readLine()?.lowercased() ?? "")
+    }
+
+    /// Setup commands run `php`, `composer`, and `wp` from PATH. Corral's own bin/ goes first, so they are the copies Corral manages.
+    static func putBinFirst(_ corral: Corral) {
+        setenv("PATH", corral.binDir + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"), 1)
     }
 
     /// Serves the current folder as <name>.<tld> over HTTPS. The name defaults to the folder name.

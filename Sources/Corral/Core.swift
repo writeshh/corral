@@ -630,8 +630,19 @@ final class Corral: @unchecked Sendable {
         return changed
     }
 
+    /// Folder with composer.phar and wp-cli.phar. Corral.app has them in Resources/phar. CORRAL_PHAR_DIR overrides it.
+    static var pharDir: String? {
+        let dir = ProcessInfo.processInfo.environment["CORRAL_PHAR_DIR"]
+            ?? executable.map { ($0 as NSString).deletingLastPathComponent + "/../Resources/phar" }
+        return dir.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
+    }
+
+    /// Where `corral laravel:update` installs the Laravel installer (a Composer project).
+    var laravelDir: String { home + "/laravel" }
+
     /// bin/corral, bin/php (global version) and bin/php84 etc. Add bin/ to PATH to use them.
-    func writeShims(_ installed: [String: String]) throws {
+    /// With a global PHP it also writes bin/composer, bin/wp, and bin/laravel. They run on that PHP.
+    func writeShims(_ installed: [String: String], pharDir: String? = Corral.pharDir) throws {
         let exe = Self.executable // resolve before removing bin/, it holds the symlink we may run through
         try? FileManager.default.removeItem(atPath: binDir)
         try mkdirs(binDir)
@@ -647,7 +658,34 @@ final class Corral: @unchecked Sendable {
                 try "#!/bin/sh\nexec \(args) \"$@\"\n".write(toFile: path, atomically: true, encoding: .utf8)
                 chmod(path, 0o755)
             }
+            guard v == global else { continue }
+            // WP-CLI 2.12 prints deprecation notices from its own code on PHP 8.5, so the wp shim hides them (8191 = E_ALL without deprecations).
+            var tools = [(name: String, flags: String, script: String)]()
+            if let pharDir {
+                tools += [("composer", "", pharDir + "/composer.phar"), ("wp", "\"-d\" \"error_reporting=8191\" ", pharDir + "/wp-cli.phar")]
+            }
+            tools.append(("laravel", "", laravelDir + "/vendor/bin/laravel"))
+            for tool in tools {
+                let check = tool.name == "laravel"
+                    ? "[ -f \"\(tool.script)\" ] || { echo \"The Laravel installer is not installed. Run: corral laravel:update\" >&2; exit 1; }\n" : ""
+                let path = "\(binDir)/\(tool.name)"
+                try "#!/bin/sh\n\(check)exec \(args) \(tool.flags)\"\(tool.script)\" \"$@\"\n".write(toFile: path, atomically: true, encoding: .utf8)
+                chmod(path, 0o755)
+            }
         }
+    }
+
+    /// Installs or updates the Laravel installer in laravelDir, with the bundled Composer. Needs a network connection.
+    func updateLaravelInstaller() throws {
+        let installed = phpVersions()
+        guard let v = globalPHP(installed), let fpm = installed[v] else { throw CorralError("Install PHP first: corral php:install <version>") }
+        guard let composer = Self.pharDir.map({ $0 + "/composer.phar" }), FileManager.default.fileExists(atPath: composer) else {
+            throw CorralError("composer.phar not found. Run Corral from Corral.app (build it with ./bundle.sh).")
+        }
+        try mkdirs(laravelDir)
+        let update = FileManager.default.fileExists(atPath: laravelDir + "/composer.json")
+        let command = update ? ["update", "laravel/installer", "--with-all-dependencies"] : ["require", "laravel/installer"]
+        try sh(cliPath(fpm), iniArgs(fpm) + [composer] + command + ["--working-dir=" + laravelDir, "--no-interaction", "--no-progress"])
     }
 
     // MARK: Updates
