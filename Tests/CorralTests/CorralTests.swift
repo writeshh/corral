@@ -445,7 +445,7 @@ import Testing
     #expect(nginx.contains("unix:\(bigSock)") && nginx.contains("unix:\(c.run)/php8.4.sock"))
 }
 
-@Test func insightsDumpsAndLogs() throws {
+@MainActor @Test func insightsDumpsAndLogs() throws {
     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
     defer { try? FileManager.default.removeItem(atPath: tmp) }
     let fm = FileManager.default
@@ -506,6 +506,7 @@ import Testing
 @Test func zshrcPathLine() throws {
     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
     defer { try? FileManager.default.removeItem(atPath: tmp) }
+    try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
     let c = Corral(home: tmp + "/home"), zshrc = tmp + "/.zshrc"
     let original = "export PATH=\"$PATH:\(c.binDir)\"\nexport PATH=\"/opt/x:\(c.binDir):$PATH\"\nalias ll=ls\n"
     try original.write(toFile: zshrc, atomically: true, encoding: .utf8)
