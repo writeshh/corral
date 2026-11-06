@@ -33,6 +33,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/build-php.sh ${{ matrix.php }}
 
+      # static-php-cli keeps the compiler output in a file. Without this step, the job log has only "exit code 2".
+      - name: Show the compiler errors
+        if: failure()
+        run: |
+          clang --version | head -n 1
+          grep -n -B2 -A6 -E "error:|\*\*\*" .deps/php-build/log/spc.shell.log | head -n 80 || true
+
       - uses: actions/upload-artifact@v4
         with:
           name: php-${{ matrix.php }}
