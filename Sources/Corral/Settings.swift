@@ -139,6 +139,7 @@ final class DomainDraft: ObservableObject {
 struct PHPTab: View {
     @ObservedObject var model: Model
     @StateObject private var settings = PHPSettings()
+    @StateObject private var xdebug = XdebugDraft()
 
     var body: some View {
         Form {
@@ -171,6 +172,7 @@ struct PHPTab: View {
             if let version = settings.version, model.snap.versions.contains(version) {
                 PHPSettingsSections(model: model, settings: settings, version: version)
             }
+            XdebugSection(model: model, draft: xdebug)
             Section {
                 Picker("Global version", selection: Binding(
                     get: { model.snap.globalPHP ?? "" },
@@ -283,6 +285,76 @@ struct PHPSettingsSections: View {
         }
         let (version, pool, ini) = (version, settings.pool, values)
         model.run("Saving PHP \(version) settings") { try $0.savePHPSettings(version, ini: ini, pool: pool) }
+    }
+}
+
+/// The debug pool settings. Values stay text until Apply, so a half-typed port does not change anything.
+@MainActor
+final class XdebugDraft: ObservableObject {
+    @Published var enabled = false
+    @Published var mode = ""
+    @Published var host = ""
+    @Published var port = ""
+    @Published var start = "yes"
+    private var loaded = false
+
+    func load(_ x: XdebugSettings) {
+        (enabled, mode, host, port, start) = (x.enabled, x.mode, x.clientHost, String(x.clientPort), x.startWithRequest)
+        loaded = true
+    }
+
+    func settings() -> XdebugSettings? {
+        guard let port = Int(port) else { return nil }
+        var x = XdebugSettings()
+        (x.enabled, x.mode, x.clientHost, x.clientPort, x.startWithRequest) = (enabled, mode, host, port, start)
+        return x
+    }
+
+    func loadOnce(_ x: XdebugSettings) { if !loaded { load(x) } }
+}
+
+struct XdebugSection: View {
+    @ObservedObject var model: Model
+    @ObservedObject var draft: XdebugDraft
+
+    var body: some View {
+        Section {
+            Toggle("Debug pool (Xdebug)", isOn: $draft.enabled)
+            TextField("Mode", text: $draft.mode, prompt: Text("debug,develop"))
+            TextField("Client host", text: $draft.host, prompt: Text("127.0.0.1"))
+            TextField("Client port", text: $draft.port, prompt: Text("9003"))
+            Picker("Start a session", selection: $draft.start) {
+                Text("For every request in the pool").tag("yes")
+                Text("Only with XDEBUG_TRIGGER").tag("trigger")
+            }
+            LabeledContent("") {
+                HStack {
+                    Button("Revert") { draft.load(model.snap.xdebug) }
+                    Button("Apply", action: apply)
+                }
+                .disabled(model.busy != nil || draft.settings() == model.snap.xdebug)
+            }
+        } header: {
+            Text("Xdebug")
+        } footer: {
+            Text(footer).foregroundStyle(.secondary)
+        }
+        .onAppear { draft.loadOnce(model.snap.xdebug) }
+    }
+
+    private var footer: String {
+        let using = model.snap.xdebugBuilds.isEmpty
+            ? "No PHP build in use has Xdebug. Update PHP above."
+            : "Debug pool for PHP \(model.snap.xdebugBuilds.joined(separator: ", "))."
+        return "A request with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument runs in a second PHP-FPM pool that has Xdebug. Other requests run without it and stay fast. \(using)"
+    }
+
+    private func apply() {
+        guard let x = draft.settings() else {
+            model.error = "The client port must be a number."
+            return
+        }
+        model.run("Saving Xdebug settings") { try $0.saveXdebug(x) }
     }
 }
 

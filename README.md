@@ -18,6 +18,7 @@ Corral connects to the internet only to install a PHP version and to look for a 
 - Include nginx and dnsmasq. Install PHP with one command.
 - Move from Laravel Herd in one step, or run next to Herd.
 - Change PHP and PHP-FPM settings in a settings window.
+- Debug with Xdebug in a separate PHP-FPM pool. Normal requests run without Xdebug.
 - See `dump()` output, logs, and caught mail in the Insights window. Herd has these features only in Herd Pro.
 - Open at login, and restart a service that stops.
 
@@ -87,6 +88,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral php:list` | List the installed PHP versions. |
 | `corral php:install <version>` | Download and install a PHP version, for example `8.4`. |
 | `corral php:uninstall <version>` | Remove a PHP version that Corral installed. |
+| `corral xdebug [on\|off]` | Turn the Xdebug debug pool on or off. See [Xdebug](#xdebug). |
 | `corral wp:setup [name]` | Set up WordPress in the current folder. See [WordPress setup](#wordpress-setup). |
 | `corral laravel:setup [name] [--seed]` | Set up a cloned Laravel project in the current folder. See [Laravel setup](#laravel-setup). |
 | `corral tools` | Show the versions of `composer`, `wp`, and `laravel`. See [Bundled tools](#bundled-tools). |
@@ -143,6 +145,31 @@ Settings > PHP shows the common `php.ini` values and the PHP-FPM settings of eac
 Corral checks the values with PHP and with `php-fpm -t` before it saves them.
 If a value is not valid, Corral shows the PHP message and changes nothing.
 Then Corral reloads PHP-FPM. Requests that run at that time can finish.
+
+### Xdebug
+
+Each PHP build has Xdebug, but PHP does not load it for normal requests.
+Xdebug slows PHP down, and Corral keeps it out of the way.
+Turn on the debug pool in Settings > PHP > Xdebug, or run `corral xdebug on`.
+Then Corral starts a second PHP-FPM for each PHP version that is in use. Only this PHP-FPM loads Xdebug.
+
+nginx sends a request to the debug pool when it has one of these:
+
+- an `XDEBUG_SESSION` or `XDEBUG_TRIGGER` cookie
+- an `XDEBUG_SESSION`, `XDEBUG_SESSION_START`, or `XDEBUG_TRIGGER` query argument
+
+A browser extension for Xdebug sets the cookie. Other requests use the normal pool.
+The debug pool reads the same `php.ini` as the normal pool.
+It starts processes on demand, and it has no request time limit, because a session waits at a breakpoint.
+
+Xdebug connects to your editor at `127.0.0.1` on port 9003. Start listening for debug connections in the editor.
+Settings > PHP > Xdebug changes the mode (`debug,develop` by default), the client host, the client port,
+and whether every request in the pool starts a session or only requests with `XDEBUG_TRIGGER`.
+`corral xdebug` has the options `--mode`, `--host`, `--port`, and `--start`.
+Corral restarts the debug pool after a change.
+The panel shows the debug pool as `php 8.4 debug`, and Corral restarts it if it stops.
+
+A PHP build from before Corral had Xdebug has no `xdebug.so`. Update the PHP version in Settings > PHP.
 
 ## Menu bar app
 
@@ -385,7 +412,8 @@ These environment variables change the defaults:
 - Corral has special rules for WordPress only. Use `.corral.json` for frameworks such as Magento.
 - Corral does not manage databases.
 - Insights does not show database queries.
-- Corral has no debug pool yet. The PHP builds have Xdebug, but nothing loads it.
+- The debug pool does not detect an editor that is listening. Use the browser extension or a query argument.
+- Xdebug profiling is not set up yet.
 
 ## Documentation
 

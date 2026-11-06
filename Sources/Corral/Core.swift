@@ -13,6 +13,7 @@ struct Config: Codable, Equatable {
     var fpm: [String: FpmPool] = [:]     // PHP version -> pool settings, when not the defaults
     var dumps = false                    // send dump() and dd() output to the Insights window
     var mail = false                     // catch mail on 127.0.0.1:2525 while the app runs
+    var xdebug = XdebugSettings()        // second PHP-FPM pool with Xdebug, for requests that ask for a debug session
 
     init() {}
 
@@ -32,6 +33,41 @@ struct Config: Codable, Equatable {
         fpm = try c.decodeIfPresent([String: FpmPool].self, forKey: .fpm) ?? d.fpm
         dumps = try c.decodeIfPresent(Bool.self, forKey: .dumps) ?? d.dumps
         mail = try c.decodeIfPresent(Bool.self, forKey: .mail) ?? d.mail
+        xdebug = try c.decodeIfPresent(XdebugSettings.self, forKey: .xdebug) ?? d.xdebug
+    }
+}
+
+/// The debug pool. Corral starts one extra php-fpm for each PHP version that has xdebug.so.
+/// A request goes to it only with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument.
+struct XdebugSettings: Codable, Equatable, Sendable {
+    var enabled = false
+    var mode = "debug,develop"
+    var clientHost = "127.0.0.1"
+    var clientPort = 9003
+    var startWithRequest = "yes"          // yes: every request in the debug pool starts a session. trigger: only with XDEBUG_TRIGGER.
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = XdebugSettings()
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
+        mode = try c.decodeIfPresent(String.self, forKey: .mode) ?? d.mode
+        clientHost = try c.decodeIfPresent(String.self, forKey: .clientHost) ?? d.clientHost
+        clientPort = try c.decodeIfPresent(Int.self, forKey: .clientPort) ?? d.clientPort
+        startWithRequest = try c.decodeIfPresent(String.self, forKey: .startWithRequest) ?? d.startWithRequest
+    }
+
+    static let modes: Set<String> = ["off", "develop", "coverage", "debug", "gcstats", "profile", "trace"]
+
+    /// Why the values cannot go into the PHP-FPM command line, or nil.
+    var problem: String? {
+        let list = mode.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        if !list.allSatisfy({ Self.modes.contains($0) }) { return "The Xdebug mode must be a list of: \(Self.modes.sorted().joined(separator: ", "))." }
+        if clientHost.wholeMatch(of: /[A-Za-z0-9._:-]+/) == nil { return "The client host must be a host name or an IP address." }
+        if !(1...65535).contains(clientPort) { return "The client port must be between 1 and 65535." }
+        if !["yes", "trigger"].contains(startWithRequest) { return "Start with request must be yes or trigger." }
+        return nil
     }
 }
 
@@ -315,9 +351,14 @@ final class Corral: @unchecked Sendable {
         try apply()
     }
 
+    /// Stops the normal pool and the debug pool of a version.
     func stopPHP(_ version: String) {
-        let pidFile = "\(run)/php\(version)-fpm.pid"
-        if let pid = readPid(pidFile) { kill(pid, SIGTERM) }
+        stopPID("\(run)/php\(version)-fpm.pid")
+        stopPID(debugPid(version))
+    }
+
+    func stopPID(_ pidFile: String) {
+        if alive(pidFile), let pid = readPid(pidFile) { kill(pid, SIGTERM) }
         for _ in 0..<30 where alive(pidFile) { usleep(100_000) }
     }
 
@@ -333,15 +374,67 @@ final class Corral: @unchecked Sendable {
         config.isolated[site.name].flatMap { installed[$0] != nil ? $0 : nil } ?? globalPHP(installed)
     }
 
-    func sock(_ version: String) -> String { "\(run)/php\(version).sock" }
+    func sock(_ version: String, debug: Bool = false) -> String { "\(run)/php\(version)\(debug ? "-debug" : "").sock" }
 
     /// A site with its own php.ini values gets its own FPM pool. PHP_VALUE from nginx would stay
     /// set in the worker and leak into the next request of another site.
     /// The socket name is a hash of the site name: macOS limits socket paths to 104 bytes.
-    func sock(_ version: String, for site: Site) -> String {
-        guard site.overrides.php?.isEmpty == false else { return sock(version) }
+    func sock(_ version: String, for site: Site, debug: Bool = false) -> String {
+        guard site.overrides.php?.isEmpty == false else { return sock(version, debug: debug) }
         let hash = site.name.utf8.reduce(UInt32(5381)) { $0 &* 33 &+ UInt32($1) } // djb2: stable between runs
-        return "\(run)/php\(version)-\(String(hash, radix: 16)).sock"
+        return "\(run)/php\(version)\(debug ? "-debug" : "")-\(String(hash, radix: 16)).sock"
+    }
+
+    // MARK: Debug pool
+
+    /// Corral's PHP builds keep the Xdebug extension next to php-fpm. Older builds have none.
+    func xdebugPath(_ fpm: String) -> String? {
+        let path = (fpm as NSString).deletingLastPathComponent + "/xdebug.so"
+        return FileManager.default.fileExists(atPath: path) ? path : nil
+    }
+
+    /// Versions that run a debug pool: the ones in use whose build has Xdebug. Empty while the setting is off.
+    func debugVersions(_ installed: [String: String]) -> [String] {
+        guard config.xdebug.enabled else { return [] }
+        return neededPHP(installed).filter { installed[$0].flatMap(xdebugPath) != nil }
+    }
+
+    /// The debug pool reads the same php.ini. Xdebug loads only here, so normal requests have no Xdebug cost.
+    /// The settings are command line options: they are read once, so a change needs a restart of this pool.
+    func debugArgs(_ fpm: String) -> [String] {
+        let x = config.xdebug
+        let options = ["zend_extension=\(xdebugPath(fpm) ?? "xdebug.so")", "xdebug.mode=\(x.mode)", "xdebug.client_host=\(x.clientHost)",
+                       "xdebug.client_port=\(x.clientPort)", "xdebug.start_with_request=\(x.startWithRequest)"]
+        return iniArgs(fpm) + options.flatMap { ["-d", $0] }
+    }
+
+    func debugPid(_ version: String) -> String { "\(run)/php\(version)-debug-fpm.pid" }
+
+    /// Saves the debug pool settings after php-fpm accepts them, then restarts the debug pools.
+    func saveXdebug(_ settings: XdebugSettings) throws {
+        if let problem = settings.problem { throw CorralError(problem) }
+        let previous = config.xdebug
+        config.xdebug = settings
+        let installed = phpVersions()
+        let versions = debugVersions(installed)
+        if settings.enabled && versions.isEmpty {
+            config.xdebug = previous
+            throw CorralError("No PHP build in use has Xdebug. Update PHP in Settings > PHP.")
+        }
+        let tmp = "\(conf)/php-debug.test.conf"
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        do {
+            for d in [conf, logs] { try mkdirs(d) }
+            for v in versions {
+                try fpmConf(v, sites: sites().filter { php(for: $0, installed) == v }, debug: true).write(toFile: tmp, atomically: true, encoding: .utf8)
+                try sh(installed[v]!, ["-t", "--fpm-config", tmp] + debugArgs(installed[v]!))
+            }
+        } catch {
+            config.xdebug = previous
+            throw CorralError("The Xdebug settings are not valid. Nothing was changed. \(error.localizedDescription)")
+        }
+        for v in installed.keys { stopPID(debugPid(v)) } // start() starts the pools again with the new options
+        try apply()
     }
 
     // MARK: PHP settings
@@ -408,14 +501,15 @@ final class Corral: @unchecked Sendable {
     }
 
     /// Graceful reload: php-fpm finishes the running requests, then reads php.ini and its pool again.
-    func reloadPHP(_ version: String) {
-        let pidFile = "\(run)/php\(version)-fpm.pid"
+    func reloadPHP(_ version: String, debug: Bool = false) {
+        let pidFile = debug ? debugPid(version) : "\(run)/php\(version)-fpm.pid"
         if alive(pidFile), let pid = readPid(pidFile) { kill(pid, SIGUSR2) }
     }
 
     // MARK: Config rendering
 
     func nginxConf(sites: [Site], installed: [String: String]) -> String {
+        let debugging = debugVersions(installed) // once: it reads the sites folder
         var out = """
         worker_processes 1;
         pid "\(run)/nginx.pid";
@@ -438,14 +532,17 @@ final class Corral: @unchecked Sendable {
             fastcgi_temp_path "\(run)/tmp/fastcgi";
 
             map $http_upgrade $connection_upgrade { default upgrade; "" close; }
+            \(debugging.isEmpty ? "" : "# A request that asks for a debug session goes to the pool with Xdebug.\n            map \"$cookie_XDEBUG_SESSION$cookie_XDEBUG_TRIGGER$arg_XDEBUG_SESSION$arg_XDEBUG_SESSION_START$arg_XDEBUG_TRIGGER\" $corral_debug { default 1; \"\" 0; }")
 
             server { listen 127.0.0.1:\(Self.httpPort) default_server; return 404 "No Corral site here.\\n"; }
 
         """
         for site in sites {
             let names = hostnames(site).map { "\($0) *.\($0)" }.joined(separator: " ")
-            let sock = php(for: site, installed).map { self.sock($0, for: site) } ?? "\(run)/no-php.sock"
-            let body = { (https: Bool) in site.proxy.map(self.proxyBody) ?? self.siteBody(site, sock: sock, https: https) }
+            let version = php(for: site, installed)
+            let sock = version.map { self.sock($0, for: site) } ?? "\(run)/no-php.sock"
+            let debugSock = version.flatMap { debugging.contains($0) ? self.sock($0, for: site, debug: true) : nil }
+            let body = { (https: Bool) in site.proxy.map(self.proxyBody) ?? self.siteBody(site, sock: sock, debugSock: debugSock, https: https) }
             if config.secured.contains(site.name) {
                 out += """
                     server { listen 127.0.0.1:\(Self.httpPort); server_name \(names); return 301 https://$host$request_uri; }
@@ -509,8 +606,13 @@ final class Corral: @unchecked Sendable {
 
     // Front-controller routing (Laravel, Symfony, Statamic, …) plus per-framework rules.
     // Herd instead routes everything through Valet's server.php + PHP drivers.
-    private func siteBody(_ site: Site, sock: String, https: Bool) -> String {
-        """
+    private func siteBody(_ site: Site, sock: String, debugSock: String? = nil, https: Bool) -> String {
+        // `set` inside `if` is the safe use of `if` in nginx. fastcgi_pass reads the variable for each request.
+        let indent = "\n                    "
+        let pass = debugSock.map {
+            ["set $php_sock \"\(sock)\";", "if ($corral_debug) { set $php_sock \"\($0)\"; }", "fastcgi_pass \"unix:$php_sock\";"].joined(separator: indent)
+        } ?? "fastcgi_pass \"unix:\(sock)\";"
+        return """
                 root "\(site.docroot)";
                 index index.php index.html;
                 charset utf-8;
@@ -520,7 +622,7 @@ final class Corral: @unchecked Sendable {
                 location ~ /\\.(?!well-known) { deny all; }
                 location ~ \\.php$ {
                     try_files $uri =404;
-                    fastcgi_pass "unix:\(sock)";
+                    \(pass)
                     fastcgi_index index.php;
                     fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
                     fastcgi_param DOCUMENT_ROOT $document_root;
@@ -567,28 +669,30 @@ final class Corral: @unchecked Sendable {
     }
 
     /// One pool for the version, plus one small pool for each of its sites with own php.ini values.
-    func fpmConf(_ version: String, sites: [Site] = []) -> String {
+    /// With `debug`, the same pools get their own pid file, log and sockets. They run on demand, and a request has no time limit,
+    /// because a debug session waits at a breakpoint.
+    func fpmConf(_ version: String, sites: [Site] = [], debug: Bool = false) -> String {
         let values = { (extra: [String: String]) in
             (self.phpOverrides() + extra.sorted { $0.key < $1.key }).map { "php_value[\($0.0)] = \"\($0.1)\"\n" }.joined()
         }
         let pool = config.fpm[version] ?? FpmPool()
-        let pm = switch pool.pm {
+        let pm = switch debug ? "ondemand" : pool.pm {
         case "static": ""
         case "ondemand": "pm.process_idle_timeout = 10s"
         default: "pm.start_servers = \(min(2, pool.maxChildren))\npm.min_spare_servers = 1\npm.max_spare_servers = \(min(3, pool.maxChildren))"
         }
-        let limits = (pool.requestTerminateTimeout > 0 ? "request_terminate_timeout = \(pool.requestTerminateTimeout)s\n" : "")
+        let limits = debug ? "" : (pool.requestTerminateTimeout > 0 ? "request_terminate_timeout = \(pool.requestTerminateTimeout)s\n" : "")
             + (pool.slowlogTimeout > 0 ? "request_slowlog_timeout = \(pool.slowlogTimeout)s\nslowlog = \"\(logs)/php\(version)-slow.log\"\n" : "")
         var out = """
         [global]
-        pid = "\(run)/php\(version)-fpm.pid"
-        error_log = "\(logs)/php\(version)-fpm.log"
+        pid = "\(debug ? debugPid(version) : "\(run)/php\(version)-fpm.pid")"
+        error_log = "\(logs)/php\(version)\(debug ? "-debug" : "")-fpm.log"
         daemonize = yes
 
-        [corral]
-        listen = "\(sock(version))"
+        [corral\(debug ? "-debug" : "")]
+        listen = "\(sock(version, debug: debug))"
         listen.mode = 0600
-        pm = \(pool.pm)
+        pm = \(debug ? "ondemand" : pool.pm)
         pm.max_children = \(pool.maxChildren)
         \(pm)
         catch_workers_output = yes
@@ -598,7 +702,7 @@ final class Corral: @unchecked Sendable {
             out += """
 
             [site-\(site.name)]
-            listen = "\(sock(version, for: site))"
+            listen = "\(sock(version, for: site, debug: debug))"
             listen.mode = 0600
             pm = ondemand
             pm.max_children = \(pool.maxChildren)
@@ -627,6 +731,16 @@ final class Corral: @unchecked Sendable {
             try text.write(toFile: file, atomically: true, encoding: .utf8)
             reloadPHP(v)
             changed.insert(v)
+        }
+        // Debug pools: a config file for each version that has one, and none for the others.
+        let debugging = debugVersions(installed)
+        for v in installed.keys {
+            let file = "\(conf)/php\(v)-debug-fpm.conf"
+            guard debugging.contains(v) else { try? FileManager.default.removeItem(atPath: file); continue }
+            let text = fpmConf(v, sites: sites.filter { php(for: $0, installed) == v }, debug: true)
+            guard (try? String(contentsOfFile: file, encoding: .utf8)) != text else { continue }
+            try text.write(toFile: file, atomically: true, encoding: .utf8)
+            reloadPHP(v, debug: true)
         }
         try writeShims(installed)
         return changed
@@ -751,6 +865,7 @@ final class Corral: @unchecked Sendable {
     func status() -> [(String, Bool)] {
         [("nginx", alive(run + "/nginx.pid")), ("dnsmasq", alive(run + "/dnsmasq.pid"))]
             + neededPHP(phpVersions()).map { ("php \($0)", alive("\(run)/php\($0)-fpm.pid")) }
+            + debugVersions(phpVersions()).map { ("php \($0) debug", alive(debugPid($0))) }
     }
 
     var isRunning: Bool { alive(run + "/nginx.pid") }
@@ -768,6 +883,12 @@ final class Corral: @unchecked Sendable {
         for v in neededPHP(installed) where !alive("\(run)/php\(v)-fpm.pid") {
             stopOrphanWorkers(v)
             try sh(installed[v]!, ["--fpm-config", "\(conf)/php\(v)-fpm.conf"] + iniArgs(installed[v]!))
+        }
+        let debugging = debugVersions(installed)
+        for v in installed.keys where !debugging.contains(v) { stopPID(debugPid(v)) } // the setting is off, or the build has no Xdebug
+        for v in debugging where !alive(debugPid(v)) {
+            stopOrphanWorkers(v, debug: true)
+            try sh(installed[v]!, ["--fpm-config", "\(conf)/php\(v)-debug-fpm.conf"] + debugArgs(installed[v]!))
         }
         // dnsmasq reads its names only at start. Restart it when a TLD or a site domain changes.
         let dns = dnsmasqConf(sites()), dnsFile = conf + "/dnsmasq.conf"
@@ -792,9 +913,10 @@ final class Corral: @unchecked Sendable {
 
     /// Workers of a php-fpm master that died keep its sockets open. A new php-fpm then fails with
     /// "Another FPM instance seems to already listen". Stop the processes that hold the sockets.
-    func stopOrphanWorkers(_ version: String) {
+    func stopOrphanWorkers(_ version: String, debug: Bool = false) {
+        // Debug pool sockets are php8.4-debug.sock and php8.4-debug-<hash>.sock. The other pool must leave them alone.
         let socks = ((try? FileManager.default.contentsOfDirectory(atPath: run)) ?? [])
-            .filter { $0.hasPrefix("php\(version)") && $0.hasSuffix(".sock") }
+            .filter { $0.hasPrefix("php\(version)") && $0.hasSuffix(".sock") && $0.hasPrefix("php\(version)-debug") == debug }
         for sock in socks {
             for pid in ((try? sh("/usr/sbin/lsof", ["-t", "\(run)/\(sock)"])) ?? "").split(separator: "\n").compactMap({ pid_t($0) }) {
                 kill(pid, SIGTERM)

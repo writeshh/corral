@@ -445,6 +445,82 @@ import Testing
     #expect(nginx.contains("unix:\(bigSock)") && nginx.contains("unix:\(c.run)/php8.4.sock"))
 }
 
+@Test func xdebugPool() throws {
+    let fm = FileManager.default
+    let tmp = fm.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? fm.removeItem(atPath: tmp) }
+    let c = Corral(home: tmp + "/home")
+    try c.mkdirs(c.phpDir + "/8.4")
+    try "#!/bin/sh\nexit 0\n".write(toFile: c.phpDir + "/8.4/php-fpm", atomically: true, encoding: .utf8) // php-fpm -t accepts everything
+    chmod(c.phpDir + "/8.4/php-fpm", 0o755)
+    try fm.createDirectory(atPath: tmp + "/sites/big", withIntermediateDirectories: true)
+    fm.createFile(atPath: tmp + "/sites/big/.corral.json", contents: Data(#"{"php": {"memory_limit": "2048M"}}"#.utf8))
+    try fm.createDirectory(atPath: tmp + "/sites/small", withIntermediateDirectories: true)
+    c.config.parked = [tmp + "/sites"]
+    c.config.php = "8.4"
+    let installed = c.phpVersions(), fpm = try #require(installed["8.4"]), sites = c.sites()
+
+    // Off by default: one pool, a fixed socket, no routing.
+    #expect(c.debugVersions(installed).isEmpty)
+    #expect(!c.nginxConf(sites: sites, installed: installed).contains("corral_debug"))
+    #expect(c.status().map(\.0) == ["nginx", "dnsmasq", "php 8.4"])
+    // An old config.json has no xdebug key.
+    #expect(try JSONDecoder().decode(Config.self, from: Data(#"{"tld": "test"}"#.utf8)).xdebug == XdebugSettings())
+
+    // Bad values are refused before anything changes.
+    var x = XdebugSettings()
+    x.enabled = true
+    var bad = x; bad.mode = "debug,fast"
+    #expect(bad.problem != nil)
+    bad = x; bad.clientPort = 0
+    #expect(bad.problem != nil)
+    bad = x; bad.clientHost = "a b"
+    #expect(bad.problem != nil)
+    bad = x; bad.startWithRequest = "sometimes"
+    #expect(bad.problem != nil)
+    #expect(x.problem == nil)
+    #expect(throws: CorralError.self) { try c.saveXdebug(bad) }
+    // A build without xdebug.so cannot run a debug pool.
+    #expect(throws: CorralError.self) { try c.saveXdebug(x) }
+    #expect(c.config.xdebug == XdebugSettings())
+
+    fm.createFile(atPath: c.phpDir + "/8.4/xdebug.so", contents: Data())
+    x.clientPort = 19003
+    try c.saveXdebug(x)
+    #expect(c.config.xdebug == x)
+    #expect(c.debugVersions(installed) == ["8.4"])
+    #expect(c.status().map(\.0) == ["nginx", "dnsmasq", "php 8.4", "php 8.4 debug"])
+    let args = c.debugArgs(fpm)
+    #expect(args.starts(with: ["-c", c.phpDir + "/8.4/php.ini", "-d", "zend_extension=\(c.phpDir)/8.4/xdebug.so"]))
+    #expect(args.contains("xdebug.mode=debug,develop") && args.contains("xdebug.client_port=19003") && args.contains("xdebug.client_host=127.0.0.1"))
+
+    #expect(try String(contentsOfFile: c.conf + "/php8.4-debug-fpm.conf", encoding: .utf8) == c.fpmConf("8.4", sites: sites, debug: true))
+
+    // The debug pool has its own pid, log and sockets. It runs on demand and has no time limit.
+    let pool = FpmPool(pm: "static", maxChildren: 8, requestTerminateTimeout: 60, slowlogTimeout: 5)
+    c.config.fpm["8.4"] = pool
+    let debug = c.fpmConf("8.4", sites: sites, debug: true)
+    let bigDebug = c.sock("8.4", for: sites[0], debug: true)
+    #expect(debug.contains("pid = \"\(c.run)/php8.4-debug-fpm.pid\"") && debug.contains("[corral-debug]\nlisten = \"\(c.run)/php8.4-debug.sock\""))
+    #expect(debug.contains("pm = ondemand") && !debug.contains("request_terminate_timeout") && !debug.contains("slowlog"))
+    #expect(debug.contains("[site-big]\nlisten = \"\(bigDebug)\"") && bigDebug.contains("php8.4-debug-"))
+    // The normal pool does not change.
+    let normal = c.fpmConf("8.4", sites: sites)
+    #expect(normal.contains("pm = static") && normal.contains("request_terminate_timeout = 60s") && !normal.contains("debug"))
+
+    // nginx sends a request with an Xdebug cookie or query argument to the debug pool.
+    let nginx = c.nginxConf(sites: sites, installed: installed)
+    #expect(nginx.contains("$cookie_XDEBUG_SESSION$cookie_XDEBUG_TRIGGER$arg_XDEBUG_SESSION$arg_XDEBUG_SESSION_START$arg_XDEBUG_TRIGGER"))
+    #expect(nginx.contains("set $php_sock \"\(c.run)/php8.4.sock\";") && nginx.contains("if ($corral_debug) { set $php_sock \"\(c.run)/php8.4-debug.sock\"; }"))
+    #expect(nginx.contains("set $php_sock \"\(c.sock("8.4", for: sites[0]))\";") && nginx.contains("set $php_sock \"\(bigDebug)\"; }"))
+
+    // Off again: no config file, no routing.
+    x.enabled = false
+    try c.saveXdebug(x)
+    #expect(!fm.fileExists(atPath: c.conf + "/php8.4-debug-fpm.conf"))
+    #expect(!(try String(contentsOfFile: c.conf + "/nginx.conf", encoding: .utf8)).contains("corral_debug"))
+}
+
 @MainActor @Test func insightsDumpsAndLogs() throws {
     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
     defer { try? FileManager.default.removeItem(atPath: tmp) }

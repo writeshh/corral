@@ -25,6 +25,9 @@ enum CLI {
       php:list                     installed PHP versions (Corral builds only)
       php:install <ver>            download a static PHP build, for example 8.4
       php:uninstall <ver>          remove a PHP version that Corral installed
+      xdebug [on|off] [--mode m] [--host h] [--port n] [--start yes|trigger]
+                                   debug pool: a second php-fpm with Xdebug. A request goes to it only
+                                   with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument.
       wp:setup [name]              set up WordPress in the current folder: database, core, config, HTTPS,
                                    debug settings. Uses Corral's wp. Needs `mysql` in PATH.
       laravel:setup [name] [--seed]  set up a cloned Laravel project: composer, .env, key, database,
@@ -171,6 +174,24 @@ enum CLI {
             case "php:uninstall":
                 guard let v = arg1 else { throw CorralError("Usage: corral php:uninstall <version>") }
                 try corral.uninstallPHP(v)
+            case "xdebug":
+                var x = corral.config.xdebug, rest = Array(args.dropFirst())
+                if let word = rest.first, word == "on" || word == "off" { x.enabled = word == "on"; rest.removeFirst() }
+                guard rest.count % 2 == 0 else { throw CorralError("Each option needs a value. Run corral without arguments to see them.") }
+                for pair in stride(from: 0, to: rest.count, by: 2) {
+                    let value = rest[pair + 1]
+                    switch rest[pair] {
+                    case "--mode": x.mode = value
+                    case "--host": x.clientHost = value
+                    case "--port": x.clientPort = Int(value) ?? 0
+                    case "--start": x.startWithRequest = value
+                    default: throw CorralError("Unknown option \(rest[pair]). Use --mode, --host, --port or --start.")
+                    }
+                }
+                if x != corral.config.xdebug { try corral.saveXdebug(x) }
+                let versions = corral.debugVersions(corral.phpVersions())
+                print("Xdebug \(x.enabled ? "on" : "off"): mode \(x.mode), client \(x.clientHost):\(x.clientPort), start with request \(x.startWithRequest)")
+                if x.enabled { print("Debug pool for PHP \(versions.joined(separator: ", ")).") }
             case "open":
                 NSWorkspace.shared.open(corral.url(try corral.site(named: arg1)))
             case "wp:setup":

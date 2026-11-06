@@ -9,6 +9,9 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - The PHP builds include Xdebug 3.5.3 as a shared extension (`xdebug.so` next to `php`). PHP loads it only when `php.ini` asks for it.
+- A debug pool for Xdebug. A second PHP-FPM for each PHP version loads Xdebug. nginx sends a request to it only with an `XDEBUG_SESSION` or `XDEBUG_TRIGGER` cookie or query argument. Normal requests run without Xdebug.
+- Settings > PHP > Xdebug and `corral xdebug [on|off]` turn the pool on or off. They set the mode, client host, client port, and when a session starts.
+- The panel shows each debug pool as `php <version> debug`, and Corral restarts a debug pool that stops.
 
 ### Fixed
 
