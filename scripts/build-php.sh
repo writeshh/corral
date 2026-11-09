@@ -44,6 +44,11 @@ rm -rf source buildroot
     --ignore-cache-sources=php-src --custom-url="xdebug:$XDEBUG_URL"
 XDEBUG_FILE=$(ls downloads/xdebug* | head -n 1)
 echo "$XDEBUG_SHA  $XDEBUG_FILE" | shasum -a 256 -c - >/dev/null || { echo "Xdebug checksum does not match." >&2; exit 1; }
+# The bcmath code in PHP 8.1 uses old K&R C. Newer compilers default to C23 and reject it.
+if [ "$MINOR" = "8.1" ]; then
+    export SPC_DEFAULT_C_FLAGS="-fpic -fpie -std=gnu17"
+    export SPC_CMD_VAR_PHP_MAKE_EXTRA_CFLAGS="-g -fstack-protector-strong -fpic -fpie -Werror=unknown-warning-option --target=arm64-apple-darwin -Os -std=gnu17"
+fi
 # Corral passes php.ini with -c. An empty scan folder stops PHP from reading /usr/local/etc/php/conf.d.
 ./spc build "$EXTS" --build-shared=xdebug --with-libs="$LIBS" --build-cli --build-fpm \
     --with-config-file-path=/usr/local/etc/corral-php --with-config-file-scan-dir= --no-interaction
