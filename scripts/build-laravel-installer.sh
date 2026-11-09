@@ -32,7 +32,10 @@ curl -fsSL "https://github.com/laravel/installer/archive/refs/tags/v$VERSION.tar
 cd "$WORK/installer-$VERSION"
 "$PHP" "$ROOT/.deps/phar/composer.phar" install --no-dev --no-scripts --classmap-authoritative --no-interaction --no-progress
 cp "$ROOT/scripts/laravel-installer/box.json" box.json
-"$PHP" -d phar.readonly=0 "$WORK/box.phar" compile --no-interaction
+# Box looks for "composer" in PATH. CI runners do not have it, so give Box a wrapper for the phar from fetch-tools.sh.
+printf '#!/bin/sh\nexec "%s" "%s" "$@"\n' "$PHP" "$ROOT/.deps/phar/composer.phar" > "$WORK/composer"
+chmod +x "$WORK/composer"
+"$PHP" -d phar.readonly=0 "$WORK/box.phar" compile --no-interaction --composer-bin "$WORK/composer"
 
 # The phar must run and report the version it was built from.
 "$PHP" laravel.phar --version | grep -q "$VERSION" || { echo "laravel.phar does not report $VERSION" >&2; exit 1; }
