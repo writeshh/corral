@@ -12,6 +12,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A debug pool for Xdebug. A second PHP-FPM for each PHP version loads Xdebug. nginx sends a request to it only with an `XDEBUG_SESSION` or `XDEBUG_TRIGGER` cookie or query argument. Normal requests run without Xdebug.
 - Settings > PHP > Xdebug and `corral xdebug [on|off]` turn the pool on or off. They set the mode, client host, client port, and when a session starts.
 - The panel shows each debug pool as `php <version> debug`, and Corral restarts a debug pool that stops.
+- `corral run <command>` runs a development server on a free port and serves it at `https://<folder>.test` while it runs. `--name` and `--port` change the name and the port.
 - Proxy sites send a `localhost` origin to the `/_next` paths when the page comes from the site itself. Next.js hot reload then works on `.test` names without `allowedDevOrigins`.
 
 ### Fixed

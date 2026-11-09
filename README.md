@@ -78,6 +78,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral unlink [name]` | Remove a linked site. |
 | `corral proxy <name> <url>` | Serve a development server as `<name>.test`. |
 | `corral unproxy <name>` | Remove a proxy site. |
+| `corral run [--name n] [--port p] <command>` | Run a development server and serve it at `https://<folder>.test` while it runs. |
 | `corral sites` | List all sites with their URL, PHP version, and document root. Also lists portless apps. |
 | `corral secure [site]` | Serve a site over HTTPS. |
 | `corral unsecure [site]` | Serve a site over HTTP. |
@@ -320,6 +321,19 @@ You can use `corral secure <name>` to serve a proxy site over HTTPS.
 ```sh
 corral proxy shop http://127.0.0.1:3000
 ```
+
+`corral run` does the same for one command, with no port to choose.
+Corral picks a free port, sets `PORT`, and serves the app at `https://<folder>.test` until the command stops.
+Then it removes the proxy again. If a PHP site has the same name, that site comes back.
+
+```sh
+cd ~/Code/shop
+corral run npm run dev
+```
+
+- Use `--name` to choose another name than the folder name.
+- Use `--port` for a server that does not read `PORT`, for example Vite: `corral run --port 5173 npx vite --port 5173`.
+- Next.js 15.2 and later allow hot reload only from `localhost` origins. For the `/_next` paths of a proxy site, Corral sends a `localhost` origin when the page comes from the site itself. You do not need `allowedDevOrigins`.
 
 [portless](https://github.com/vercel-labs/portless) gives each app a name such as `shop.localhost`.
 If Laravel Herd uses ports 80 and 443, portless must use a different port, for example 1355.

@@ -678,3 +678,12 @@ import Testing
     #expect(Corral.portlessURL(host: "web.localhost", dir: tmp)?.absoluteString == "https://web.localhost:1355")
 }
 
+@Test func runOptions() throws {
+    let r = try CLI.runOptions(["--port", "5173", "npx", "vite", "--port", "5173"], cwd: "/x/My Shop")
+    #expect(r.name == "my-shop" && r.port == 5173 && r.command == ["npx", "vite", "--port", "5173"]) // options stop at the command
+    #expect(try CLI.runOptions(["--name", "api", "npm", "run", "dev"], cwd: "/x/shop").name == "api")
+    #expect(throws: CorralError.self) { try CLI.runOptions(["--port", "99999", "npm"], cwd: "/x/shop") }
+    #expect(throws: CorralError.self) { try CLI.runOptions([], cwd: "/x/shop") }
+    let port = try CLI.freePort()
+    #expect(port > 1024 && port <= 65535)
+}

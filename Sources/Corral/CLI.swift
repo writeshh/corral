@@ -17,6 +17,10 @@ enum CLI {
       proxy <name> <url>           serve a dev server as <name>.<tld>, for example
                                    corral proxy shop http://shop.localhost:1355
       unproxy <name>               remove a proxy site
+      run [--name n] [--port p] <command>
+                                   run a dev server and serve it at https://<folder>.<tld> until it stops,
+                                   for example corral run npm run dev. Corral picks a free port and sets PORT.
+                                   Use --port for servers that ignore PORT, such as Vite.
       sites                        list sites
       secure [site] | unsecure [site]
       secured                      list secured sites with the expiry date of each certificate
@@ -134,6 +138,9 @@ enum CLI {
                     throw CorralError("No proxy named '\(arg1 ?? "")'.")
                 }
                 try corral.apply()
+            case "run":
+                let (name, port, command) = try runOptions(Array(args.dropFirst()), cwd: cwd)
+                return try runDevServer(corral, name: name, port: port, command: command)
             case "sites":
                 let installed = corral.phpVersions()
                 for s in corral.sites() {
@@ -317,6 +324,85 @@ enum CLI {
             try runLive(["npm", "install"])
             try runLive(["npm", "run", "build"])
         }
+    }
+
+    /// `corral run [--name n] [--port p] <command…>`. The options end at the first word that is not an option.
+    static func runOptions(_ args: [String], cwd: String) throws -> (name: String, port: Int?, command: [String]) {
+        var rest = args[...], name = (cwd as NSString).lastPathComponent, port: Int?
+        while let flag = rest.first, flag == "--name" || flag == "--port" {
+            guard rest.count > 1 else { throw CorralError("\(flag) needs a value.") }
+            let value = rest[rest.startIndex + 1]
+            if flag == "--name" {
+                name = value
+            } else {
+                guard let p = Int(value), (1...65535).contains(p) else { throw CorralError("Bad port: \(value)") }
+                port = p
+            }
+            rest = rest.dropFirst(2)
+        }
+        guard !rest.isEmpty, !Corral.slug(name).isEmpty else { throw CorralError("Usage: corral run [--name <name>] [--port <port>] <command>") }
+        return (Corral.slug(name), port, Array(rest))
+    }
+
+    /// A port on 127.0.0.1 that nothing listens on now. The kernel picks it.
+    static func freePort() throws -> Int {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        defer { close(fd) }
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let ok = withUnsafeMutablePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, len) == 0 && getsockname(fd, $0, &len) == 0 }
+        }
+        guard fd >= 0, ok else { throw CorralError("Could not find a free port.") }
+        return Int(UInt16(bigEndian: addr.sin_port))
+    }
+
+    /// The command that `corral run` started. A SIGTERM to Corral goes on to it.
+    nonisolated(unsafe) static var child: pid_t = 0
+
+    /// Serves the command's port as https://<name>.<tld> while the command runs, then removes the proxy again.
+    /// An existing proxy or site with the same name comes back when the command stops.
+    // ponytail: a SIGKILL to Corral leaves the proxy in config.json. `corral unproxy <name>` removes it.
+    static func runDevServer(_ corral: Corral, name: String, port: Int?, command: [String]) throws -> Int32 {
+        let port = try port ?? freePort()
+        let upstream = URL(string: "http://127.0.0.1:\(port)")!
+        let before = (proxy: corral.config.proxies[name], secured: corral.config.secured.contains(name))
+        corral.config.proxies[name] = upstream.absoluteString
+        defer {
+            // Read config.json again: other commands may have changed it while the server ran.
+            let now = Corral()
+            now.config.proxies[name] = before.proxy
+            if !before.secured { now.config.secured.remove(name) }
+            do { try now.apply() } catch {
+                FileHandle.standardError.write(Data("corral: could not remove the proxy \(name): \(error.localizedDescription)\n".utf8))
+            }
+        }
+        let site = Site(name: name, proxy: upstream)
+        try corral.setSecure(site, true)
+        if !corral.isRunning { try corral.start() }
+        print("\(corral.url(site).absoluteString) -> \(upstream.absoluteString)\n")
+
+        // Ctrl-C and a closed terminal reach the command too. Corral waits for it to stop, then cleans up.
+        signal(SIGINT) { _ in }
+        signal(SIGHUP) { _ in }
+        signal(SIGTERM) { _ in if CLI.child > 0 { kill(CLI.child, SIGTERM) } }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = command
+        p.environment = ProcessInfo.processInfo.environment.merging(["PORT": String(port)]) { $1 }
+        var status: Int32 = 127
+        do {
+            try p.run()
+            child = p.processIdentifier
+            p.waitUntilExit()
+            status = p.terminationReason == .uncaughtSignal ? 128 + p.terminationStatus : p.terminationStatus
+        } catch {
+            FileHandle.standardError.write(Data("corral: could not run \(command[0]): \(error.localizedDescription)\n".utf8))
+        }
+        return status
     }
 
     /// Runs a command in the current folder with the terminal attached, so the user sees its output.
