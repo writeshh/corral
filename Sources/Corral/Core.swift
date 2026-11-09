@@ -186,7 +186,7 @@ final class Corral: @unchecked Sendable {
 
     init(home: String? = nil) {
         let env = ProcessInfo.processInfo.environment
-        self.home = home ?? env["CORRAL_HOME"] ?? NSHomeDirectory() + "/Library/Application Support/Corral"
+        self.home = home ?? env["CORRAL_HOME"] ?? Self.defaultHome
         self.brew = env["HOMEBREW_PREFIX"] ?? "/opt/homebrew"
         let data = try? Data(contentsOf: URL(fileURLWithPath: self.home + "/config.json"))
         if let data {
@@ -196,6 +196,8 @@ final class Corral: @unchecked Sendable {
             if home == nil { try? FileManager.default.createDirectory(atPath: config.parked[0], withIntermediateDirectories: true) }
         }
     }
+
+    static let defaultHome = NSHomeDirectory() + "/Library/Application Support/Corral"
 
     var conf: String { home + "/conf" }
     var run: String { home + "/run" }

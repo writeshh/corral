@@ -168,8 +168,10 @@ final class Model: ObservableObject {
     }
 
     /// Keeps Corral's bin folder first in PATH, through the last line of ~/.zshrc. Says so only when the file changed.
+    /// Only for the real home: a test or CORRAL_HOME home must not point the user's shell at its bin folder.
     private func addToPath() {
         let corral = corral
+        guard corral.home == Corral.defaultHome else { return }
         queue.async {
             guard (try? corral.addToPath()) == true else { return }
             Task { @MainActor in self.notice = "Corral put its bin folder first in PATH in ~/.zshrc. Open a new terminal to use Corral's php." }
