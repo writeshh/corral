@@ -621,7 +621,7 @@ import Testing
     let fresh = CLI.wpSetupSteps(name: "crm.pigment", host: "crm.pigment.test", dir: tmp)
     #expect(fresh[0] == CLI.createDatabase("wp_crm_pigment") && fresh[0][0] == "php") // mysqli: no mysql client needed
     #expect(fresh[0].last!.contains("CREATE DATABASE IF NOT EXISTS `wp_crm_pigment`"))
-    #expect(fresh.contains(["wp", "core", "download", "--skip-content"]))
+    #expect(fresh.contains(["wp", "core", "download", "--skip-content", "--locale=en_US"]))
     #expect(fresh.contains { $0.starts(with: ["wp", "config", "create", "--dbname=wp_crm_pigment"]) })
     #expect(fresh.contains { $0.contains("--url=https://crm.pigment.test") })
 
@@ -794,4 +794,31 @@ import Testing
     #expect(c.profiles().first?.label == "shop_test__orders_5")
     #expect(c.cleanProfiles(maxBytes: 1000, now: now) == 2) // the 8-day-old file, and "a", which no longer fits
     #expect(c.profiles().map(\.label) == ["shop_test__orders_5", "shop_test_b"])
+}
+
+@Test func wordPressDefaults() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+
+    let plain = CLI.wpSetupSteps(name: "shop", host: "shop.test", dir: tmp)
+    #expect(plain.contains { $0.contains("--admin_user=admin") && $0.contains("--admin_email=admin@shop.test") })
+
+    var wp = WordPressDefaults()
+    (wp.adminUser, wp.adminPassword, wp.adminEmail, wp.locale, wp.tablePrefix) = ("dev", "secret", "dev@example.com", "sv_SE", "sh_")
+    #expect(wp.problem == nil)
+    let steps = CLI.wpSetupSteps(name: "shop", host: "shop.test", dir: tmp, wp: wp)
+    #expect(steps.contains(["wp", "core", "download", "--skip-content", "--locale=sv_SE"]))
+    #expect(steps.contains { $0.contains("--dbprefix=sh_") && $0.contains("--locale=sv_SE") && $0.contains("--dbname=wp_shop") }) // the database name keeps wp_
+    #expect(steps.contains { $0.contains("--admin_user=dev") && $0.contains("--admin_password=secret") && $0.contains("--admin_email=dev@example.com") && $0.contains("--locale=sv_SE") }) // install sets WPLANG
+
+    // A config.json without the key, or with only some values, keeps the defaults for the rest.
+    let old = try JSONDecoder().decode(Config.self, from: Data(#"{"tld":"test","wordpress":{"locale":"de_DE"}}"#.utf8))
+    #expect(old.wordpress.locale == "de_DE" && old.wordpress.adminUser == "admin" && old.wordpress.tablePrefix == "wp_")
+
+    for bad in [("prefix", "wp-"), ("locale", "Swedish"), ("email", "nope")] {
+        var x = WordPressDefaults()
+        switch bad.0 { case "prefix": x.tablePrefix = bad.1; case "locale": x.locale = bad.1; default: x.adminEmail = bad.1 }
+        #expect(x.problem != nil)
+    }
 }

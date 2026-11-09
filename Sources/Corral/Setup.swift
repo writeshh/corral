@@ -81,7 +81,7 @@ extension Corral {
     func setUpWordPress(_ site: Site) throws {
         let host = "\(site.name).\(config.tld)"
         try setSecure(site, true)
-        for step in CLI.wpSetupSteps(name: site.name, host: host, dir: site.path) { try runStep(step, in: site.path) }
+        for step in CLI.wpSetupSteps(name: site.name, host: host, dir: site.path, wp: config.wordpress) { try runStep(step, in: site.path) }
     }
 
     func setUpLaravel(_ site: Site) throws {

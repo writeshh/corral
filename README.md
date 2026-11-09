@@ -95,6 +95,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral profiles` | List the profiler files. |
 | `corral queries [on\|off]` | Record the SQL queries of Laravel and WordPress requests. See [Insights](#insights). |
 | `corral queries:list [n]` | Print the queries of the newest `n` requests. |
+| `corral wp:defaults [options]` | Show or change the admin user, password, email, locale, and table prefix of `wp:setup`. |
 | `corral wp:import <dump> [name]` | Import a SQL dump into a WordPress site and change its address to `<name>.test`. See [WordPress setup](#wordpress-setup). |
 | `corral new <name> [options]` | Create a Laravel project in the parked folder and serve it over HTTPS. See [New Laravel projects](#new-laravel-projects). |
 | `corral laravel:setup [name] [--seed]` | Set up a cloned Laravel project in the current folder. See [Laravel setup](#laravel-setup). |
@@ -272,11 +273,20 @@ The name defaults to the folder name. The command uses Corral's own `wp` (WP-CLI
 2. Create the database `wp_<name>` on the MySQL server at `127.0.0.1`, with Corral's PHP (`mysqli`). The user is `root`, with no password.
 3. Download WordPress core with `wp core download --skip-content`. Corral skips this step when `wp-load.php` exists.
 4. Create `wp-config.php`. Corral skips this step when the file exists.
-5. Install WordPress with the user `admin` and the password `admin`.
+5. Install WordPress with the user `admin` and the password `admin`, in the locale `en_US`. Change these values in Settings > Tools > New WordPress sites, or with `corral wp:defaults`.
 6. Turn on `WP_DEBUG`, `WP_DEBUG_LOG`, `WP_DEBUG_DISPLAY`, `SCRIPT_DEBUG`, and `DISABLE_WP_CRON`, and set `ENVIRONMENT` to `DEV`.
 7. Open `/wp-admin` in the browser.
 
 Use this command for local development only. The admin password is not secret.
+
+`corral wp:defaults` changes the values for new sites, for example:
+
+```sh
+corral wp:defaults --user dev --password dev --email dev@example.com --locale sv_SE --prefix wp_
+```
+
+Without options, the command shows the values. An empty email means `admin@<site>.test`.
+The database name is always `wp_<name>`, whatever the table prefix is.
 
 The panel runs the same steps. Open the site's "..." menu and choose "Set Up WordPress…". The entry shows only for a site that has `wp-content` or `wp-load.php` but no `wp-config.php`.
 If a step fails, the panel shows the end of its output.

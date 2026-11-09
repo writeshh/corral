@@ -36,6 +36,8 @@ enum CLI {
       profiles                     list profiler files. Corral deletes them after 7 days, and the oldest above 1 GB.
       queries [on|off]             record the SQL queries of Laravel and WordPress requests for Insights > Queries
       queries:list [n]             print the queries of the newest n requests (default 1)
+      wp:defaults [--user u] [--password p] [--email e] [--locale l] [--prefix p]
+                                   the admin user, password, email, locale and table prefix of wp:setup
       wp:import <dump> [name]      import a SQL dump (.sql or .sql.gz) into the site's database, then replace
                                    the old address with https://<name>.<tld>. Needs wp-config.php.
       wp:setup [name]              set up WordPress in the current folder: database, core, config, HTTPS,
@@ -242,8 +244,9 @@ enum CLI {
             case "wp:setup":
                 putBinFirst(corral)
                 let (name, host) = try linkAndSecure(corral, arg1, cwd)
-                for step in wpSetupSteps(name: name, host: host, dir: cwd) { try runLive(step) }
-                print("https://\(host)/wp-admin  (user admin, password admin)")
+                let wp = corral.config.wordpress
+                for step in wpSetupSteps(name: name, host: host, dir: cwd, wp: wp) { try runLive(step) }
+                print("https://\(host)/wp-admin  (user \(wp.adminUser), password \(wp.adminPassword))")
                 NSWorkspace.shared.open(URL(string: "https://\(host)/wp-admin")!)
             case "wp:import":
                 guard let arg1 else { throw CorralError("Usage: corral wp:import <dump.sql or dump.sql.gz> [name]") }
@@ -257,6 +260,23 @@ enum CLI {
                 print("Importing \(dump)…")
                 print(try Corral.wpImport(dump: dump, host: host) { try Corral.sh("/usr/bin/env", $0) })
                 print("https://\(host)")
+            case "wp:defaults":
+                var wp = corral.config.wordpress, rest = Array(args.dropFirst())
+                guard rest.count % 2 == 0 else { throw CorralError("Each option needs a value, for example --locale sv_SE.") }
+                for pair in stride(from: 0, to: rest.count, by: 2) {
+                    let value = rest[pair + 1]
+                    switch rest[pair] {
+                    case "--user": wp.adminUser = value
+                    case "--password": wp.adminPassword = value
+                    case "--email": wp.adminEmail = value
+                    case "--locale": wp.locale = value
+                    case "--prefix": wp.tablePrefix = value
+                    default: throw CorralError("Unknown option \(rest[pair]). Use --user, --password, --email, --locale or --prefix.")
+                    }
+                }
+                if let problem = wp.problem { throw CorralError(problem) }
+                if wp != corral.config.wordpress { corral.config.wordpress = wp; try corral.save() }
+                print("user \(wp.adminUser), password \(wp.adminPassword), email \(wp.adminEmail.isEmpty ? "admin@<site>.\(corral.config.tld)" : wp.adminEmail), locale \(wp.locale), table prefix \(wp.tablePrefix)")
             case "tools":
                 for tool in Corral.tools {
                     let have = corral.installedTool(tool)
@@ -347,16 +367,16 @@ enum CLI {
 
     /// The commands of `corral wp:setup`, in order. Each one runs through `env`, so `wp` and `php` come from PATH.
     /// Core and config are skipped when the folder already has them, so a rerun never overwrites a wp-config.php.
-    static func wpSetupSteps(name: String, host: String, dir: String) -> [[String]] {
+    static func wpSetupSteps(name: String, host: String, dir: String, wp: WordPressDefaults = WordPressDefaults()) -> [[String]] {
         let db = dbName("wp_", name)
         let has = { FileManager.default.fileExists(atPath: dir + "/" + $0) }
         var steps = [createDatabase(db)]
-        if !has("wp-load.php") { steps.append(["wp", "core", "download", "--skip-content"]) }
+        if !has("wp-load.php") { steps.append(["wp", "core", "download", "--skip-content", "--locale=\(wp.locale)"]) }
         if !has("wp-config.php") {
-            steps.append(["wp", "config", "create", "--dbname=\(db)", "--dbuser=root", "--dbpass=", "--dbhost=127.0.0.1", "--dbprefix=wp_", "--locale=en_US"])
+            steps.append(["wp", "config", "create", "--dbname=\(db)", "--dbuser=root", "--dbpass=", "--dbhost=127.0.0.1", "--dbprefix=\(wp.tablePrefix)", "--locale=\(wp.locale)"])
         }
-        steps.append(["wp", "core", "install", "--url=https://\(host)", "--title=\(name)", "--admin_user=admin", "--admin_password=admin",
-                      "--admin_email=admin@\(host)", "--skip-email"])
+        steps.append(["wp", "core", "install", "--url=https://\(host)", "--title=\(name)", "--admin_user=\(wp.adminUser)",
+                      "--admin_password=\(wp.adminPassword)", "--admin_email=\(wp.email(host))", "--locale=\(wp.locale)", "--skip-email"])
         for key in ["WP_DEBUG", "WP_DEBUG_LOG", "WP_DEBUG_DISPLAY", "SCRIPT_DEBUG", "DISABLE_WP_CRON"] {
             steps.append(["wp", "config", "set", key, "true", "--raw"])
         }

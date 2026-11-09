@@ -18,6 +18,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `corral wp:import <dump>` and "Import Database…" in the site menu import a SQL dump (`.sql` or `.sql.gz`) into a WordPress site with `mysqli`, then replace the old address with `https://<site>.test` through `wp search-replace`.
 - Insights > Queries, `corral queries [on|off]`, and `corral queries:list`: Laravel and WordPress sites record each SQL query with its time and caller. Insights marks slow queries and counts repeated ones.
 - The Xdebug profiler: with `--profile on` (or the switch in Insights > Profiles or Settings), an `XDEBUG_PROFILE` cookie or query argument sends a request to the debug pool, which writes a cachegrind file to `profiles`. Insights > Profiles lists, opens, and deletes the files. `corral profile <url>` profiles one request. Corral deletes profiles after 7 days, and the oldest ones above 1 GB.
+- Settings > Tools > New WordPress sites and `corral wp:defaults` set the admin user, password, email, locale, and table prefix that `wp:setup` and "Set Up WordPress…" use. The locale also selects the WordPress download and the site language.
 - Proxy sites send a `localhost` origin to the `/_next` paths when the page comes from the site itself. Next.js hot reload then works on `.test` names without `allowedDevOrigins`.
 
 ### Changed

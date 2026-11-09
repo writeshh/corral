@@ -36,6 +36,7 @@ struct Snapshot: Sendable {
     var herdFound = false
     var dumps = false
     var queries = false
+    var wordpress = WordPressDefaults()
     var mail = false
     var xdebug = XdebugSettings()
     var xdebugBuilds: [String] = []        // PHP versions in use whose build has Xdebug
@@ -64,6 +65,7 @@ struct Snapshot: Sendable {
         herdFound = Corral.herdFound
         dumps = c.config.dumps
         queries = c.config.queries
+        wordpress = c.config.wordpress
         mail = c.config.mail
         xdebug = c.config.xdebug
         xdebugBuilds = c.neededPHP(php).filter { php[$0].flatMap(c.xdebugPath) != nil }
@@ -866,7 +868,8 @@ struct SiteRow: View {
             Button("Set Up WordPress…") {
                 model.run("Setting up \(site.name)") { c in
                     try c.setUpWordPress(site)
-                    Task { @MainActor in model.notice = "WordPress is ready at \(row.host)/wp-admin (user admin, password admin)." }
+                    let wp = c.config.wordpress
+                    Task { @MainActor in model.notice = "WordPress is ready at \(row.host)/wp-admin (user \(wp.adminUser), password \(wp.adminPassword))." }
                 }
             }
         }

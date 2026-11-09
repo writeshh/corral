@@ -368,8 +368,16 @@ final class ProxyDraft: ObservableObject {
 }
 
 /// Composer, WP-CLI, and the Laravel installer. Corral.app holds one copy of each. An update goes to the tools folder.
+/// The WordPress defaults as text until Apply.
+final class WordPressDraft: ObservableObject {
+    @Published var values = WordPressDefaults()
+    private var loaded = false
+    func loadOnce(_ wp: WordPressDefaults) { if !loaded { values = wp; loaded = true } }
+}
+
 struct ToolsTab: View {
     @ObservedObject var model: Model
+    @StateObject private var wp = WordPressDraft()
 
     var body: some View {
         Form {
@@ -393,9 +401,36 @@ struct ToolsTab: View {
             } footer: {
                 Text("Run them in a terminal as composer, wp, and laravel, after you put Corral's bin folder in PATH.")
             }
+            Section {
+                TextField("Admin user", text: $wp.values.adminUser)
+                TextField("Admin password", text: $wp.values.adminPassword)
+                TextField("Admin email", text: $wp.values.adminEmail, prompt: Text("admin@<site>.\(model.snap.tld)"))
+                TextField("Locale", text: $wp.values.locale, prompt: Text("en_US"))
+                TextField("Table prefix", text: $wp.values.tablePrefix, prompt: Text("wp_"))
+                LabeledContent("") {
+                    HStack {
+                        Button("Revert") { wp.values = model.snap.wordpress }
+                        Button("Apply", action: applyWordPress)
+                    }
+                    .disabled(model.busy != nil || wp.values == model.snap.wordpress)
+                }
+            } header: {
+                Text("New WordPress sites")
+            } footer: {
+                Text("\"Set Up WordPress…\" and corral wp:setup use these values. The password is visible, because the site runs only on this Mac.")
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
-        .onAppear { model.checkToolUpdates() }
+        .onAppear { model.checkToolUpdates(); wp.loadOnce(model.snap.wordpress) }
+    }
+}
+
+extension ToolsTab {
+    private func applyWordPress() {
+        let values = wp.values
+        if let problem = values.problem { model.error = problem; return }
+        model.run("Saving WordPress defaults") { c in c.config.wordpress = values; try c.save() }
     }
 }
 

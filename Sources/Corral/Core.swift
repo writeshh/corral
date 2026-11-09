@@ -13,6 +13,7 @@ struct Config: Codable, Equatable {
     var fpm: [String: FpmPool] = [:]     // PHP version -> pool settings, when not the defaults
     var dumps = false                    // send dump() and dd() output to the Insights window
     var queries = false                  // record the SQL queries of each request for the Insights window
+    var wordpress = WordPressDefaults()  // the values that `corral wp:setup` and "Set Up WordPress…" use
     var mail = false                     // catch mail on 127.0.0.1:2525 while the app runs
     var xdebug = XdebugSettings()        // second PHP-FPM pool with Xdebug, for requests that ask for a debug session
 
@@ -34,6 +35,7 @@ struct Config: Codable, Equatable {
         fpm = try c.decodeIfPresent([String: FpmPool].self, forKey: .fpm) ?? d.fpm
         dumps = try c.decodeIfPresent(Bool.self, forKey: .dumps) ?? d.dumps
         queries = try c.decodeIfPresent(Bool.self, forKey: .queries) ?? d.queries
+        wordpress = try c.decodeIfPresent(WordPressDefaults.self, forKey: .wordpress) ?? d.wordpress
         mail = try c.decodeIfPresent(Bool.self, forKey: .mail) ?? d.mail
         xdebug = try c.decodeIfPresent(XdebugSettings.self, forKey: .xdebug) ?? d.xdebug
     }
@@ -71,6 +73,38 @@ struct XdebugSettings: Codable, Equatable, Sendable {
         if clientHost.wholeMatch(of: /[A-Za-z0-9._:-]+/) == nil { return "The client host must be a host name or an IP address." }
         if !(1...65535).contains(clientPort) { return "The client port must be between 1 and 65535." }
         if !["yes", "trigger"].contains(startWithRequest) { return "Start with request must be yes or trigger." }
+        return nil
+    }
+}
+
+/// The values of a new local WordPress install. The password is not secret: the site runs only on this Mac.
+struct WordPressDefaults: Codable, Equatable, Sendable {
+    var adminUser = "admin"
+    var adminPassword = "admin"
+    var adminEmail = ""                   // empty: admin@<site>.<tld>
+    var locale = "en_US"
+    var tablePrefix = "wp_"
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = WordPressDefaults()
+        adminUser = try c.decodeIfPresent(String.self, forKey: .adminUser) ?? d.adminUser
+        adminPassword = try c.decodeIfPresent(String.self, forKey: .adminPassword) ?? d.adminPassword
+        adminEmail = try c.decodeIfPresent(String.self, forKey: .adminEmail) ?? d.adminEmail
+        locale = try c.decodeIfPresent(String.self, forKey: .locale) ?? d.locale
+        tablePrefix = try c.decodeIfPresent(String.self, forKey: .tablePrefix) ?? d.tablePrefix
+    }
+
+    func email(_ host: String) -> String { adminEmail.isEmpty ? "admin@\(host)" : adminEmail }
+
+    /// Why WordPress would refuse the values, or nil.
+    var problem: String? {
+        if adminUser.isEmpty || adminPassword.isEmpty { return "The admin user and the password cannot be empty." }
+        if !adminEmail.isEmpty && adminEmail.wholeMatch(of: /[^@\s]+@[^@\s]+\.[^@\s]+/) == nil { return "\(adminEmail) is not an email address." }
+        if locale.wholeMatch(of: /[a-z]{2,3}(_[A-Z]{2})?(_[a-z]+)?/) == nil { return "The locale must look like en_US or sv_SE." }
+        if tablePrefix.wholeMatch(of: /[A-Za-z0-9_]+/) == nil { return "The table prefix can have only letters, digits and _." }
         return nil
     }
 }
