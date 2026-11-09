@@ -137,7 +137,17 @@ extension Corral {
                 });
             };
             spl_autoload_register($hook, true, true);
-            if (!defined('SAVEQUERIES')) define('SAVEQUERIES', true);
+            // A wp-config.php that defines SAVEQUERIES itself would warn "already defined", so then its own value counts.
+            // WordPress also looks for wp-config.php one folder above the document root.
+            $root = rtrim($_SERVER['DOCUMENT_ROOT'] ?? '', '/');
+            $owns = false;
+            foreach ([$root, dirname($root)] as $dir) {
+                if ($root !== '' && is_file("$dir/wp-config.php")) {
+                    $owns = (bool) preg_match('/^\s*define\s*\(\s*[\'"]SAVEQUERIES[\'"]/m', (string) @file_get_contents("$dir/wp-config.php"));
+                    break;
+                }
+            }
+            if (!$owns && !defined('SAVEQUERIES')) define('SAVEQUERIES', true);
             // WordPress reads hooks that exist before it loads (WP_Hook::build_preinitialized_hooks). pre_http_request
             // marks the start, http_api_debug the end of each wp_remote_* call.
             $GLOBALS['wp_filter']['pre_http_request'][-1000][] = ['accepted_args' => 3, 'function' => static function ($pre, $args, $url) use (&$started) {

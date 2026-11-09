@@ -241,7 +241,7 @@ How the recording works:
 - In Laravel, it listens for the query, HTTP client, cache, and queue events. In WordPress, it turns on `SAVEQUERIES` and reads `$wpdb->queries` at the end of the request, and it adds the `pre_http_request` and `http_api_debug` hooks before WordPress loads.
 - Each request with something to show adds one line to `logs/queries.jsonl` in Corral's folder. The file starts again at 20 MB.
 - Other PHP code records nothing. A site that sets its own `auto_prepend_file` (for example in `.user.ini`) keeps it, and records nothing.
-- If `wp-config.php` defines `SAVEQUERIES`, PHP shows a warning that the constant is already defined. Remove the line while you record queries.
+- If `wp-config.php` defines `SAVEQUERIES`, Corral uses that value and does not define the constant itself. With `false`, Corral records no queries for that site.
 
 ## Document root
 

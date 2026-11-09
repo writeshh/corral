@@ -35,6 +35,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Recording requests no longer causes a "Constant SAVEQUERIES already defined" warning in a WordPress site whose `wp-config.php` defines `SAVEQUERIES`. The site's own value counts.
 - Section footers in Settings are aligned to the leading edge. The Settings window aligned multi-line footers to the right.
 - Settings > General no longer shows the main TLD as an extra TLD. Corral drops an extra TLD that is the same as the main TLD, for example after the main TLD changed from `internal` to `test`.
 - The menu bar app no longer changes `~/.zshrc` when it runs with a Corral home other than the default one (`CORRAL_HOME`, tests). Before, it put that home's `bin` folder first in `PATH`.

@@ -776,6 +776,7 @@ import Testing
     #expect(more.count == 1 && more[0].http?.count == 2 && more[0].http?[1].status == nil)
     #expect(more[0].counts == "2 HTTP · 3 cache (2 hits) · 1 job")
     #expect(more[0].jobs?.first?.job == "App\\Jobs\\Mail")
+    #expect(c.queriesPHP.contains("if (!$owns && !defined('SAVEQUERIES')) define('SAVEQUERIES', true);")) // a wp-config.php value wins
     #expect(c.queriesPHP.contains("Illuminate\\Http\\Client\\Events\\ResponseReceived") && c.queriesPHP.contains("['wp_filter']['http_api_debug']"))
 }
 
