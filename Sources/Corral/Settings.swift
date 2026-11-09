@@ -23,6 +23,17 @@ struct SettingsView: View {
     }
 }
 
+/// A section footer. The Settings window aligns multi-line footers to the trailing edge, which looks broken under
+/// leading labels, so every footer sets its alignment itself.
+struct Footer: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text).foregroundStyle(.secondary).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 /// Shows the job in progress, or the last error, under the tabs.
 struct StatusLine: View {
     @ObservedObject var model: Model
@@ -68,12 +79,12 @@ struct GeneralTab: View {
                     }
                 }
             } footer: {
-                Text("Corral starts the services again if they ran before, and restarts a service that stops.").foregroundStyle(.secondary)
+                Footer("Corral starts the services again if they ran before, and restarts a service that stops.")
             }
             Section {
                 Toggle("Show Corral in the Dock", isOn: $showInDock).onChange(of: showInDock) { Dock.update() }
             } footer: {
-                Text("Corral always shows in the Dock and in ⌘-Tab while a Corral window is open. Turn this on to keep it there.").foregroundStyle(.secondary)
+                Footer("Corral always shows in the Dock and in ⌘-Tab while a Corral window is open. Turn this on to keep it there.")
             }
             Section {
                 TextField("Main TLD", text: $domains.tld)
@@ -85,8 +96,7 @@ struct GeneralTab: View {
             } header: {
                 Text("Domains")
             } footer: {
-                Text("Each site answers <site>.<TLD> for every TLD. A site can add more names with \"domains\" in .corral.json. Corral asks for your password to update /etc/resolver.")
-                    .foregroundStyle(.secondary)
+                Footer("Each site answers <site>.<TLD> for every TLD. A site can add more names with \"domains\" in .corral.json. Corral asks for your password to update /etc/resolver.")
             }
             Section {
                 Toggle("Serve .test instead of Herd", isOn: Binding(
@@ -97,7 +107,7 @@ struct GeneralTab: View {
                     }
                 ))
             } footer: {
-                Text("Quit Herd first. Herd takes .test back while it runs.").foregroundStyle(.secondary)
+                Footer("Quit Herd first. Herd takes .test back while it runs.")
             }
             .disabled(model.snap.tld == Corral.sharedTLD)
             Section {
@@ -271,8 +281,7 @@ struct PHPSettingsSections: View {
         } header: {
             Text("PHP-FPM")
         } footer: {
-            Text("Corral checks the values with PHP before it saves them, then reloads PHP \(version). A site can set its own values with \"php\" in .corral.json.")
-                .foregroundStyle(.secondary)
+            Footer("Corral checks the values with PHP before it saves them, then reloads PHP \(version). A site can set its own values with \"php\" in .corral.json.")
         }
     }
 
@@ -343,7 +352,7 @@ struct XdebugSection: View {
         } header: {
             Text("Xdebug")
         } footer: {
-            Text(footer).foregroundStyle(.secondary)
+            Footer(footer)
         }
         .onAppear { draft.loadOnce(model.snap.xdebug) }
     }
@@ -402,7 +411,7 @@ struct ToolsTab: View {
                     }
                 }
             } footer: {
-                Text("Run them in a terminal as composer, wp, and laravel, after you put Corral's bin folder in PATH.")
+                Footer("Run them in a terminal as composer, wp, and laravel, after you put Corral's bin folder in PATH.")
             }
             Section {
                 TextField("Admin user", text: $wp.values.adminUser)
@@ -420,8 +429,7 @@ struct ToolsTab: View {
             } header: {
                 Text("New WordPress sites")
             } footer: {
-                Text("\"Set Up WordPress…\" and corral wp:setup use these values. The password is visible, because the site runs only on this Mac.")
-                    .foregroundStyle(.secondary)
+                Footer("\"Set Up WordPress…\" and corral wp:setup use these values. The password is visible, because the site runs only on this Mac.")
             }
         }
         .formStyle(.grouped)
@@ -453,7 +461,7 @@ struct SitesTab: View {
             } header: {
                 Text("Parked folders")
             } footer: {
-                Text("Each subfolder is a site.").foregroundStyle(.secondary)
+                Footer("Each subfolder is a site.")
             }
             Section("Links") {
                 if model.snap.links.isEmpty { Text("Run corral link in a project folder.").foregroundStyle(.secondary) }
@@ -523,7 +531,7 @@ struct CertificatesTab: View {
                     }
                 }
             } footer: {
-                Text("Corral renews certificates that expire within 30 days when the services start.").foregroundStyle(.secondary)
+                Footer("Corral renews certificates that expire within 30 days when the services start.")
             }
             Section {
                 LabeledContent("Expiring certificates") {
@@ -578,8 +586,7 @@ struct AboutTab: View {
                     }
                 }
             } footer: {
-                Text("Corral looks for a new version at launch and once a day. With automatic updates on, it installs the new version and restarts. Your sites keep running.")
-                    .foregroundStyle(.secondary)
+                Footer("Corral looks for a new version at launch and once a day. With automatic updates on, it installs the new version and restarts. Your sites keep running.")
             }
             Section {
                 LabeledContent("nginx", value: "BSD 2-Clause")
