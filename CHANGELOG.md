@@ -23,6 +23,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The Insights window shows errors from its dumps and mail switches. Before, they showed only in the menu bar panel.
 - The PHP build script uses the PHP version that it is asked for. Before, a cached source of another version was reused, and the weekly build did not pick up new patch releases.
 
 ## [0.5.0] - 2026-11-04

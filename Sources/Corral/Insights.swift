@@ -131,12 +131,13 @@ struct InsightsView: View {
     @StateObject private var log = LogState() // here, not in LogsView, so a tab switch keeps Clear
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             switch tab {
             case "logs": LogsView(model: model, log: log)
             case "mail": MailView(model: model, mail: mail)
             default: DumpsView(model: model, insights: insights)
             }
+            StatusLine(model: model) // the dumps and mail switches here change Corral's config, so their errors show here too
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
