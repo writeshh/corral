@@ -296,17 +296,18 @@ final class XdebugDraft: ObservableObject {
     @Published var host = ""
     @Published var port = ""
     @Published var start = "yes"
+    @Published var profile = false
     private var loaded = false
 
     func load(_ x: XdebugSettings) {
-        (enabled, mode, host, port, start) = (x.enabled, x.mode, x.clientHost, String(x.clientPort), x.startWithRequest)
+        (enabled, mode, host, port, start, profile) = (x.enabled, x.mode, x.clientHost, String(x.clientPort), x.startWithRequest, x.profile)
         loaded = true
     }
 
     func settings() -> XdebugSettings? {
         guard let port = Int(port) else { return nil }
         var x = XdebugSettings()
-        (x.enabled, x.mode, x.clientHost, x.clientPort, x.startWithRequest) = (enabled, mode, host, port, start)
+        (x.enabled, x.mode, x.clientHost, x.clientPort, x.startWithRequest, x.profile) = (enabled, mode, host, port, start, profile)
         return x
     }
 
@@ -327,6 +328,8 @@ struct XdebugSection: View {
                 Text("For every request in the pool").tag("yes")
                 Text("Only with XDEBUG_TRIGGER").tag("trigger")
             }
+            .disabled(draft.profile)
+            Toggle("Profiler (XDEBUG_PROFILE)", isOn: $draft.profile).disabled(!draft.enabled)
             LabeledContent("") {
                 HStack {
                     Button("Revert") { draft.load(model.snap.xdebug) }
@@ -346,7 +349,7 @@ struct XdebugSection: View {
         let using = model.snap.xdebugBuilds.isEmpty
             ? "No PHP build in use has Xdebug. Update PHP above."
             : "Debug pool for PHP \(model.snap.xdebugBuilds.joined(separator: ", "))."
-        return "A request with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument runs in a second PHP-FPM pool that has Xdebug. Other requests run without it and stay fast. \(using)"
+        return "A request with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument runs in a second PHP-FPM pool that has Xdebug. Other requests run without it and stay fast. With the profiler on, XDEBUG_PROFILE also uses the pool and writes a cachegrind file (see Insights > Profiles), and each trigger starts only its own mode. \(using)"
     }
 
     private func apply() {

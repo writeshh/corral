@@ -136,6 +136,7 @@ struct InsightsView: View {
             case "logs": LogsView(model: model, log: log)
             case "mail": MailView(model: model, mail: mail)
             case "queries": QueriesView(model: model)
+            case "profiles": ProfilesView(model: model)
             default: DumpsView(model: model, insights: insights)
             }
             StatusLine(model: model) // the dumps and mail switches here change Corral's config, so their errors show here too
@@ -145,6 +146,7 @@ struct InsightsView: View {
                 Picker("View", selection: $tab) {
                     Text("Dumps").tag("dumps")
                     Text("Queries").tag("queries")
+                    Text("Profiles").tag("profiles")
                     Text("Logs").tag("logs")
                     Text("Mail").tag("mail")
                 }

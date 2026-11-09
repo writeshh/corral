@@ -29,9 +29,11 @@ enum CLI {
       php:list                     installed PHP versions (Corral builds only)
       php:install <ver>            download a static PHP build, for example 8.4
       php:uninstall <ver>          remove a PHP version that Corral installed
-      xdebug [on|off] [--mode m] [--host h] [--port n] [--start yes|trigger]
+      xdebug [on|off] [--mode m] [--host h] [--port n] [--start yes|trigger] [--profile on|off]
                                    debug pool: a second php-fpm with Xdebug. A request goes to it only
                                    with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument.
+      profile <url>                request a URL with an XDEBUG_PROFILE cookie and print the cachegrind file it wrote
+      profiles                     list profiler files. Corral deletes them after 7 days, and the oldest above 1 GB.
       queries [on|off]             record the SQL queries of Laravel and WordPress requests for Insights > Queries
       queries:list [n]             print the queries of the newest n requests (default 1)
       wp:import <dump> [name]      import a SQL dump (.sql or .sql.gz) into the site's database, then replace
@@ -202,12 +204,15 @@ enum CLI {
                     case "--host": x.clientHost = value
                     case "--port": x.clientPort = Int(value) ?? 0
                     case "--start": x.startWithRequest = value
-                    default: throw CorralError("Unknown option \(rest[pair]). Use --mode, --host, --port or --start.")
+                    case "--profile":
+                        guard value == "on" || value == "off" else { throw CorralError("Use --profile on or --profile off.") }
+                        x.profile = value == "on"
+                    default: throw CorralError("Unknown option \(rest[pair]). Use --mode, --host, --port, --start or --profile.")
                     }
                 }
                 if x != corral.config.xdebug { try corral.saveXdebug(x) }
                 let versions = corral.debugVersions(corral.phpVersions())
-                print("Xdebug \(x.enabled ? "on" : "off"): mode \(x.mode), client \(x.clientHost):\(x.clientPort), start with request \(x.startWithRequest)")
+                print("Xdebug \(x.enabled ? "on" : "off"): mode \(x.mode), client \(x.clientHost):\(x.clientPort), start with request \(x.startWithRequest), profiler \(x.profile ? "on" : "off")")
                 if x.enabled { print("Debug pool for PHP \(versions.joined(separator: ", ")).") }
             case "queries":
                 if let word = arg1 {
@@ -223,6 +228,15 @@ enum CLI {
                     print("\(r.method) \(r.url)  \(r.queries.count) queries, \(r.totalMs.formatted(.number.precision(.fractionLength(1)))) ms\(r.repeated > 0 ? ", \(r.repeated) repeated" : "")")
                     for q in r.queries { print("  \(q.ms.formatted(.number.precision(.fractionLength(2)))) ms  \(q.filled)\(q.caller.map { "  [\($0)]" } ?? "")") }
                 }
+            case "profile":
+                guard let arg1 else { throw CorralError("Usage: corral profile <url>") }
+                let p = try corral.profile(arg1)
+                print("\(p.url.path)  (\(ByteCountFormatter.string(fromByteCount: Int64(p.size), countStyle: .file)))")
+            case "profiles":
+                corral.cleanProfiles()
+                let list = corral.profiles()
+                if list.isEmpty { print("No profiles in \(corral.profilesDir).") }
+                for p in list { print("\(p.date.formatted(date: .numeric, time: .standard))\t\(ByteCountFormatter.string(fromByteCount: Int64(p.size), countStyle: .file))\t\(p.url.path)") }
             case "open":
                 NSWorkspace.shared.open(corral.url(try corral.site(named: arg1)))
             case "wp:setup":

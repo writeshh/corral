@@ -512,6 +512,10 @@ import Testing
     // nginx sends a request with an Xdebug cookie or query argument to the debug pool.
     let nginx = c.nginxConf(sites: sites, installed: installed)
     #expect(nginx.contains("$cookie_XDEBUG_SESSION$cookie_XDEBUG_TRIGGER$arg_XDEBUG_SESSION$arg_XDEBUG_SESSION_START$arg_XDEBUG_TRIGGER"))
+    #expect(!nginx.contains("XDEBUG_PROFILE")) // only with the profiler on
+    c.config.xdebug.profile = true
+    #expect(c.nginxConf(sites: c.sites(), installed: installed).contains("$arg_XDEBUG_TRIGGER$cookie_XDEBUG_PROFILE$arg_XDEBUG_PROFILE\""))
+    c.config.xdebug.profile = false
     #expect(nginx.contains("set $php_sock \"\(c.run)/php8.4.sock\";") && nginx.contains("if ($corral_debug) { set $php_sock \"\(c.run)/php8.4-debug.sock\"; }"))
     #expect(nginx.contains("set $php_sock \"\(c.sock("8.4", for: sites[0]))\";") && nginx.contains("set $php_sock \"\(bigDebug)\"; }"))
 
@@ -761,4 +765,33 @@ import Testing
     #expect(requests.map(\.url) == ["shop.test/list", "shop.test/"]) // newest first, the half-written line is skipped
     #expect(requests[0].repeated == 1 && requests[0].totalMs == 2)
     #expect(requests[1].queries[0].filled == "select * from users where id = 7 and name = 'O''Brien'")
+}
+
+@Test func xdebugProfiler() throws {
+    let fm = FileManager.default
+    let tmp = fm.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? fm.removeItem(atPath: tmp) }
+    let c = Corral(home: tmp)
+    c.config.xdebug.enabled = true
+    let plain = c.debugArgs("/x/php-fpm")
+    #expect(plain.contains("xdebug.mode=debug,develop") && plain.contains("xdebug.start_with_request=yes") && !plain.contains { $0.hasPrefix("xdebug.output_dir") })
+
+    c.config.xdebug.profile = true
+    let args = c.debugArgs("/x/php-fpm")
+    #expect(args.contains("xdebug.mode=debug,develop,profile")) // added once, also when the mode has it already
+    #expect(args.contains("xdebug.start_with_request=trigger") && args.contains("xdebug.output_dir=\(tmp)/profiles"))
+    c.config.xdebug.mode = "profile"
+    #expect(c.debugArgs("/x/php-fpm").contains("xdebug.mode=profile"))
+
+    // Cleanup: older than 7 days goes, then the oldest files above the size limit.
+    try c.mkdirs(c.profilesDir)
+    let now = Date()
+    for (name, age, size) in [("1.1.shop_test_old", 8.0, 10), ("2.2.shop_test_a", 1.0, 600), ("3.3.shop_test_b", 0.5, 600), ("4.4.shop_test__orders_5", 0.1, 100)] {
+        let path = c.profilesDir + "/cachegrind.out." + name
+        fm.createFile(atPath: path, contents: Data(count: size))
+        try fm.setAttributes([.modificationDate: now.addingTimeInterval(-age * 86400)], ofItemAtPath: path)
+    }
+    #expect(c.profiles().first?.label == "shop_test__orders_5")
+    #expect(c.cleanProfiles(maxBytes: 1000, now: now) == 2) // the 8-day-old file, and "a", which no longer fits
+    #expect(c.profiles().map(\.label) == ["shop_test__orders_5", "shop_test_b"])
 }

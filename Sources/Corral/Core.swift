@@ -40,13 +40,14 @@ struct Config: Codable, Equatable {
 }
 
 /// The debug pool. Corral starts one extra php-fpm for each PHP version that has xdebug.so.
-/// A request goes to it only with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument.
+/// A request goes to it only with an XDEBUG_SESSION, XDEBUG_TRIGGER or XDEBUG_PROFILE cookie or query argument.
 struct XdebugSettings: Codable, Equatable, Sendable {
     var enabled = false
     var mode = "debug,develop"
     var clientHost = "127.0.0.1"
     var clientPort = 9003
     var startWithRequest = "yes"          // yes: every request in the debug pool starts a session. trigger: only with XDEBUG_TRIGGER.
+    var profile = false                   // the profiler: XDEBUG_PROFILE writes a cachegrind file to <home>/profiles
 
     init() {}
 
@@ -58,6 +59,7 @@ struct XdebugSettings: Codable, Equatable, Sendable {
         clientHost = try c.decodeIfPresent(String.self, forKey: .clientHost) ?? d.clientHost
         clientPort = try c.decodeIfPresent(Int.self, forKey: .clientPort) ?? d.clientPort
         startWithRequest = try c.decodeIfPresent(String.self, forKey: .startWithRequest) ?? d.startWithRequest
+        profile = try c.decodeIfPresent(Bool.self, forKey: .profile) ?? d.profile
     }
 
     static let modes: Set<String> = ["off", "develop", "coverage", "debug", "gcstats", "profile", "trace"]
@@ -405,8 +407,17 @@ final class Corral: @unchecked Sendable {
     /// The settings are command line options: they are read once, so a change needs a restart of this pool.
     func debugArgs(_ fpm: String) -> [String] {
         let x = config.xdebug
-        let options = ["zend_extension=\(xdebugPath(fpm) ?? "xdebug.so")", "xdebug.mode=\(x.mode)", "xdebug.client_host=\(x.clientHost)",
-                       "xdebug.client_port=\(x.clientPort)", "xdebug.start_with_request=\(x.startWithRequest)"]
+        var options = ["zend_extension=\(xdebugPath(fpm) ?? "xdebug.so")", "xdebug.client_host=\(x.clientHost)", "xdebug.client_port=\(x.clientPort)"]
+        if x.profile {
+            // Each trigger starts only its own mode: XDEBUG_SESSION debugs, XDEBUG_PROFILE profiles, XDEBUG_TRIGGER does both.
+            // "yes" would profile every debug request. Files stay uncompressed, so qcachegrind can read them too.
+            let modes = x.mode.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0 != "off" }
+            options += ["xdebug.mode=\((modes.contains("profile") ? modes : modes + ["profile"]).joined(separator: ","))",
+                        "xdebug.start_with_request=trigger", "xdebug.output_dir=\(profilesDir)",
+                        "xdebug.profiler_output_name=cachegrind.out.%u.%H%R", "xdebug.use_compression=0"]
+        } else {
+            options += ["xdebug.mode=\(x.mode)", "xdebug.start_with_request=\(x.startWithRequest)"]
+        }
         return iniArgs(fpm) + options.flatMap { ["-d", $0] }
     }
 
@@ -537,7 +548,7 @@ final class Corral: @unchecked Sendable {
             # Next.js dev servers serve /_next and /__nextjs only to localhost origins. A page on its own Corral name
             # sends Origin https://<site>.<tld>, so a proxy sends a localhost origin for those paths. Other origins stay.
             map "$scheme://$host $http_origin $uri" $corral_origin { default $http_origin; "~^(\\S+) \\1 \\S*/(_next|__nextjs)" "http://localhost"; }
-            \(debugging.isEmpty ? "" : "# A request that asks for a debug session goes to the pool with Xdebug.\n            map \"$cookie_XDEBUG_SESSION$cookie_XDEBUG_TRIGGER$arg_XDEBUG_SESSION$arg_XDEBUG_SESSION_START$arg_XDEBUG_TRIGGER\" $corral_debug { default 1; \"\" 0; }")
+            \(debugging.isEmpty ? "" : "# A request that asks for a debug session goes to the pool with Xdebug.\n            map \"$cookie_XDEBUG_SESSION$cookie_XDEBUG_TRIGGER$arg_XDEBUG_SESSION$arg_XDEBUG_SESSION_START$arg_XDEBUG_TRIGGER\(config.xdebug.profile ? "$cookie_XDEBUG_PROFILE$arg_XDEBUG_PROFILE" : "")\" $corral_debug { default 1; \"\" 0; }")
 
             server { listen 127.0.0.1:\(Self.httpPort) default_server; return 404 "No Corral site here.\\n"; }
 
@@ -725,7 +736,7 @@ final class Corral: @unchecked Sendable {
     /// Returns the PHP versions whose FPM configuration changed. A running php-fpm of those reloads.
     @discardableResult
     func writeConfigs() throws -> Set<String> {
-        for d in [conf, logs, certs, run + "/tmp"] { try mkdirs(d) }
+        for d in [conf, logs, certs, run + "/tmp", profilesDir] { try mkdirs(d) }
         let installed = phpVersions()
         let sites = sites()
         if let bad = sites.first(where: { $0.overridesError != nil }) {
@@ -886,6 +897,7 @@ final class Corral: @unchecked Sendable {
     /// Idempotent: writes configs, starts whatever is down, reloads nginx if it's already up.
     func start() throws {
         try writeConfigs()
+        cleanProfiles()
         try renewCertificates()
         let installed = phpVersions()
         if installed.isEmpty { throw CorralError("No PHP found. Install it with: corral php:install \(Self.phpChoices[0])") }

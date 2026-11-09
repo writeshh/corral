@@ -91,6 +91,8 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral php:uninstall <version>` | Remove a PHP version that Corral installed. |
 | `corral xdebug [on\|off]` | Turn the Xdebug debug pool on or off. See [Xdebug](#xdebug). |
 | `corral wp:setup [name]` | Set up WordPress in the current folder. See [WordPress setup](#wordpress-setup). |
+| `corral profile <url>` | Profile one request with Xdebug and print the cachegrind file. See [Profiler](#profiler). |
+| `corral profiles` | List the profiler files. |
 | `corral queries [on\|off]` | Record the SQL queries of Laravel and WordPress requests. See [Insights](#insights). |
 | `corral queries:list [n]` | Print the queries of the newest `n` requests. |
 | `corral wp:import <dump> [name]` | Import a SQL dump into a WordPress site and change its address to `<name>.test`. See [WordPress setup](#wordpress-setup). |
@@ -174,11 +176,23 @@ It starts processes on demand, and it has no request time limit, because a sessi
 Xdebug connects to your editor at `127.0.0.1` on port 9003. Start listening for debug connections in the editor.
 Settings > PHP > Xdebug changes the mode (`debug,develop` by default), the client host, the client port,
 and whether every request in the pool starts a session or only requests with `XDEBUG_TRIGGER`.
-`corral xdebug` has the options `--mode`, `--host`, `--port`, and `--start`.
+`corral xdebug` has the options `--mode`, `--host`, `--port`, `--start`, and `--profile`.
 Corral restarts the debug pool after a change.
 The panel shows the debug pool as `php 8.4 debug`, and Corral restarts it if it stops.
 
 A PHP build from before Corral had Xdebug has no `xdebug.so`. Update the PHP version in Settings > PHP.
+
+#### Profiler
+
+Turn on the profiler in Insights > Profiles, in Settings > PHP > Xdebug, or with `corral xdebug on --profile on`.
+The profiler runs in the debug pool, so this also turns on the debug pool.
+
+- A request with an `XDEBUG_PROFILE` cookie or query argument goes to the debug pool, and Xdebug writes a cachegrind file for it. Add `?XDEBUG_PROFILE=1` to a URL, or run `corral profile <url>`.
+- Each trigger starts only its own mode: `XDEBUG_SESSION` debugs, `XDEBUG_PROFILE` profiles, and `XDEBUG_TRIGGER` does both. While the profiler is on, the "start a session" setting is always `trigger`.
+- The files go to `profiles` in Corral's folder. The name holds the time, the host, and the path, for example `cachegrind.out.1794246235.436050.shop_test__checkout`.
+- Corral deletes profiles that are older than 7 days, and the oldest profiles when all of them use more than 1 GB.
+- Insights > Profiles lists the files. "Open" uses the app that your Mac uses for the file. To read cachegrind files, install qcachegrind (`brew install qcachegrind`), or use PhpStorm (Tools > Analyze Xdebug Profiler Snapshot).
+- Corral writes the files uncompressed, so all of these tools can read them.
 
 ## Menu bar app
 
