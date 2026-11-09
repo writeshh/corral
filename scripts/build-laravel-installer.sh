@@ -12,7 +12,9 @@ ROOT="$PWD"
 BOX=4.7.1; BOX_SHA=aedabb38bad96a90868603f118956c3faa662b545c06be66df1b145aba703c0a
 PHP="${PHP:-php}"
 
-VERSION="${1:-$(curl -fsSL https://api.github.com/repos/laravel/installer/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')}"
+# CI runners share IP addresses, so the anonymous API rate limit is often used up. Send GH_TOKEN when it is set.
+AUTH=${GH_TOKEN:+"Authorization: Bearer $GH_TOKEN"}
+VERSION="${1:-$(curl -fsSL ${AUTH:+-H "$AUTH"} https://api.github.com/repos/laravel/installer/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')}"
 case "$VERSION" in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "Bad version: $VERSION" >&2; exit 1 ;; esac
 
 ./scripts/fetch-tools.sh >/dev/null
