@@ -67,8 +67,8 @@ extension Corral {
         guard let oldHost = wpHost(old), oldHost != host else { return imported }
         // "//host" catches http and https. ponytail: it also matches a longer host that starts with the same name.
         let flags = ["--all-tables-with-prefix", "--skip-columns=guid", "--report-changed-only"] + quiet
-        try run(["wp", "search-replace", "//" + oldHost, "//" + host] + flags)
-        try run(["wp", "search-replace", "http://" + host, "https://" + host] + flags)
+        _ = try run(["wp", "search-replace", "//" + oldHost, "//" + host] + flags)
+        _ = try run(["wp", "search-replace", "http://" + host, "https://" + host] + flags)
         return "\(imported) Replaced \(oldHost) with \(host)."
     }
 
