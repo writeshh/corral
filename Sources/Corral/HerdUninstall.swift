@@ -8,7 +8,9 @@ struct HerdUninstall {
     var support: String?                   // ~/Library/Application Support/Herd, to the Trash
     var supportSize = 0
     var services: (path: String, size: Int)? // Herd Pro databases and storage: needs its own yes
-    var nodeVersions: [String] = []        // Node.js versions in Herd's nvm: they go with the folder
+    var nodeVersions: [String] = []        // Node.js versions in Herd's nvm
+    var globalPackages: [String] = []      // npm packages installed with -g in those versions, for example a CLI
+    var nvmTarget: String?                 // ~/.nvm: Herd's nvm moves there before the folder goes. Nil when ~/.nvm exists.
     var shellFiles: [String: String] = [:] // file -> its text without Herd's lines
     var rootFiles: [String] = []           // helper, LaunchDaemon, sudoers file: removed with one admin prompt
     var removesResolver = false            // /etc/resolver/test is Herd's own (nameserver 127.0.0.1 only)
@@ -29,12 +31,19 @@ struct HerdUninstall {
         if removesResolver { out.append("Remove /etc/resolver/test (Herd's file)") }
         if resolverBackup { out.append("Remove Corral's backup of Herd's resolver file. `corral migrate:herd --undo` no longer works.") }
         if loginItem { out.append("Remove Herd from the login items") }
-        for file in shellFiles.keys.sorted() { out.append("Remove Herd's lines from \((file as NSString).abbreviatingWithTildeInPath) (backup: \((file as NSString).lastPathComponent).corral-herd.bak)") }
+        for file in shellFiles.keys.sorted() {
+            let nvm = shellFiles[file]!.contains("moved from Herd by Corral") ? ", and add the lines that load ~/.nvm" : ""
+            out.append("Remove Herd's lines from \((file as NSString).abbreviatingWithTildeInPath)\(nvm) (backup: \((file as NSString).lastPathComponent).corral-herd.bak)")
+        }
         if defaults { out.append("Delete Herd's settings (defaults delete de.beyondco.herd)") }
+        if !nodeVersions.isEmpty, let nvmTarget {
+            let packages = globalPackages.isEmpty ? "" : ", with the global npm packages \(globalPackages.joined(separator: ", "))"
+            out.append("Move Herd's nvm with Node.js \(nodeVersions.joined(separator: ", "))\(packages) to \((nvmTarget as NSString).abbreviatingWithTildeInPath). The shell loads it from there.")
+        }
         if let support { out.append("Move \((support as NSString).abbreviatingWithTildeInPath) (\(size(supportSize))) to the Trash") }
         if let services { out.append("  It holds Herd Pro service data (databases, storage) in config/services: \(size(services.size))") }
-        if !nodeVersions.isEmpty {
-            out.append("  It holds Herd's Node.js \(nodeVersions.joined(separator: ", ")). node and npm stop working in new terminals until you install Node another way, for example brew install node.")
+        if !nodeVersions.isEmpty && nvmTarget == nil {
+            out.append("  It holds Herd's Node.js \(nodeVersions.joined(separator: ", ")). ~/.nvm exists already, so Corral does not move them. node and npm from Herd stop working in new terminals.")
         }
         if let app { out.append("Move \(app) to the Trash") }
         if valetCA && removeCA { out.append("Remove the Laravel Valet CA from the System keychain") }
@@ -59,13 +68,28 @@ extension Corral {
             plan.supportSize = folderSize(support)
             let services = support + "/config/services"
             if let items = try? fm.contentsOfDirectory(atPath: services), !items.isEmpty { plan.services = (services, folderSize(services)) }
-            plan.nodeVersions = ((try? fm.contentsOfDirectory(atPath: support + "/config/nvm/versions/node")) ?? []).filter { $0.hasPrefix("v") }
+            let versions = support + "/config/nvm/versions/node"
+            plan.nodeVersions = ((try? fm.contentsOfDirectory(atPath: versions)) ?? []).filter { $0.hasPrefix("v") }
                 .sorted { $0.compare($1, options: .numeric) == .orderedAscending }
+            if !plan.nodeVersions.isEmpty && fm.fileExists(atPath: support + "/config/nvm/nvm.sh") && !fm.fileExists(atPath: home + "/.nvm") {
+                plan.nvmTarget = home + "/.nvm"
+            }
+            // npm and corepack come with Node. Scoped packages are one folder deeper.
+            plan.globalPackages = Set(plan.nodeVersions.flatMap { v -> [String] in
+                let dir = "\(versions)/\(v)/lib/node_modules"
+                return ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).flatMap { name -> [String] in
+                    name.hasPrefix("@") ? ((try? fm.contentsOfDirectory(atPath: dir + "/" + name)) ?? []).map { name + "/" + $0 } : [name]
+                }
+            }).subtracting(["npm", "corepack"]).filter { !$0.hasPrefix(".") }.sorted()
         }
         for name in [".zshrc", ".bashrc", ".bash_profile"] {
             let file = home + "/" + name
             guard let text = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
-            let clean = withoutHerdLines(text, home: home)
+            var clean = withoutHerdLines(text, home: home)
+            // The file loaded Herd's nvm: it loads the moved one now. Herd's zsh file also switched Node with .nvmrc.
+            if plan.nvmTarget != nil && text.contains("export NVM_DIR=\"\(support)/config/nvm\"") {
+                clean += nvmLines(autoSwitch: name == ".zshrc" && text.contains("/Applications/Herd.app/Contents/Resources/config/shell/zshrc.zsh"))
+            }
             if clean != text { plan.shellFiles[file] = clean }
         }
         plan.rootFiles = [herdHelper, herdDaemon, "/etc/sudoers.d/herd"].filter(exists)
@@ -78,6 +102,38 @@ extension Corral {
             plan.valetCA = (try? sh("/usr/bin/security", ["find-certificate", "-c", valetCAName, "/Library/Keychains/System.keychain"])) != nil
         }
         return plan
+    }
+
+    /// The standard nvm lines from nvm's README, plus its zsh hook that runs `nvm use` in a folder with .nvmrc
+    /// (what Herd's zshrc.zsh did).
+    static func nvmLines(autoSwitch: Bool) -> String {
+        var text = """
+
+        # nvm and Node.js, moved from Herd by Corral
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+
+        """
+        if autoSwitch {
+            text += """
+            autoload -U add-zsh-hook
+            load-nvmrc() {
+              local nvmrc_path="$(nvm_find_nvmrc)"
+              if [ -n "$nvmrc_path" ]; then
+                local nvmrc_node_version=$(nvm version "$(cat "${nvmrc_path}")")
+                if [ "$nvmrc_node_version" = "N/A" ]; then nvm install
+                elif [ "$nvmrc_node_version" != "$(nvm version)" ]; then nvm use
+                fi
+              elif [ -n "$(PWD=$OLDPWD nvm_find_nvmrc)" ] && [ "$(nvm version)" != "$(nvm version default)" ]; then
+                nvm use default
+              fi
+            }
+            add-zsh-hook chpwd load-nvmrc
+            load-nvmrc
+
+            """
+        }
+        return text
     }
 
     /// The lines that Herd adds to a shell file, from the list in Herd's uninstall script. The nvm loader line
@@ -128,6 +184,11 @@ extension Corral {
             } catch { problems.append("\(file): \(error.localizedDescription)") }
         }
         if plan.defaults { _ = try? Self.sh("/usr/bin/defaults", ["delete", "de.beyondco.herd"]) }
+        if let target = plan.nvmTarget, let support = plan.support {
+            // Same volume: a rename, so it is instant and keeps the global packages and their links.
+            do { try FileManager.default.moveItem(atPath: support + "/config/nvm", toPath: target) }
+            catch { problems.append("Could not move Herd's nvm to \(target): \(error.localizedDescription). It is in the Trash with Herd's folder.") }
+        }
         for path in [plan.support, plan.app].compactMap({ $0 }) {
             do { try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil) }
             catch { problems.append("Could not move \(path) to the Trash: \(error.localizedDescription). Drag it to the Trash in Finder.") }

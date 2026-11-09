@@ -1264,7 +1264,7 @@ final class Corral: @unchecked Sendable {
             }
             if !proxies.isEmpty { out.append("Proxies: \(list(proxies.sorted { $0.key < $1.key }.map { "\($0.key) -> \($0.value)" }))") }
             if !skipped.isEmpty { out.append("Certificates with no site (skipped): \(list(skipped))") }
-            if !node.isEmpty { out.append("Sites with .nvmrc (Corral does not manage Node, keep nvm): \(list(node))") }
+            if !node.isEmpty { out.append("Sites with .nvmrc (Corral does not manage Node. Herd's nvm keeps working, and corral uninstall:herd moves it to ~/.nvm): \(list(node))") }
             return out
         }
     }

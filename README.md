@@ -388,7 +388,7 @@ The steps follow Herd's own uninstall script (`Herd.app/Contents/Resources/unins
 Read the list before you confirm:
 
 - Herd Pro databases and storage are in `config/services` in Herd's folder. When this folder has data, Corral asks again. `--yes` alone does not accept it. Export the data first, or pass `--include-services`.
-- Herd's folder also holds the Node.js versions of Herd's nvm. After the step, install Node another way, for example `brew install node`.
+- Herd's folder also holds Herd's nvm, with its Node.js versions and global npm packages. Corral moves it to `~/.nvm` first, and adds the standard nvm lines to the shell file. When Herd's shell file switched Node from `.nvmrc`, Corral adds nvm's hook that does the same. If `~/.nvm` exists already, Corral does not touch it, and Herd's Node versions go to the Trash with the folder. (`herd isolate-node` only writes `.nvmrc` files in your projects, so those stay.)
 - The "Laravel Valet CA" stays in the System keychain unless you agree, or pass `--remove-ca`. Laravel Valet uses the same CA.
 - After this step, `corral migrate:herd --undo` no longer works.
 

@@ -870,6 +870,7 @@ import Testing
     #expect(plan.app == root + "/Applications/Herd.app" && plan.support == herd)
     #expect(plan.services?.path == herd + "/config/services" && plan.services!.size > 0)
     #expect(plan.nodeVersions == ["v9.0.0", "v22.1.0"])
+    #expect(plan.nvmTarget == nil) // no nvm.sh: not an nvm folder, nothing to move
     #expect(plan.shellFiles.keys.sorted() == [home + "/.zshrc"])
     #expect(plan.rootFiles == [Corral.herdHelper] && !plan.removesResolver) // Corral's resolver file stays
 
@@ -910,4 +911,37 @@ import Testing
     c.config.xdebug.clientHost = "127.0.0.1"
     close(fd)
     #expect(!c.editorListens && !c.updateEditorFlag())
+}
+
+@Test func herdNodeMovesToNvm() throws {
+    let fm = FileManager.default
+    let tmp = fm.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? fm.removeItem(atPath: tmp) }
+    let home = tmp + "/home", nvm = home + "/Library/Application Support/Herd/config/nvm"
+    for dir in ["/v22.1.0/lib/node_modules/npm", "/v22.1.0/lib/node_modules/@scope/pkg", "/v24.0.0/lib/node_modules/tool"] {
+        try fm.createDirectory(atPath: nvm + "/versions/node" + dir, withIntermediateDirectories: true)
+    }
+    fm.createFile(atPath: nvm + "/nvm.sh", contents: nil)
+    let zshrc = """
+    # Herd injected NVM configuration
+    export NVM_DIR="\(nvm)"
+    [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"  # This loads nvm
+    [[ -f "/Applications/Herd.app/Contents/Resources/config/shell/zshrc.zsh" ]] && builtin source "/Applications/Herd.app/Contents/Resources/config/shell/zshrc.zsh"
+    alias ll='ls -l'
+    """
+    try zshrc.write(toFile: home + "/.zshrc", atomically: true, encoding: .utf8)
+    try "export PATH=\"$HOME/bin:$PATH\"\n".write(toFile: home + "/.bashrc", atomically: true, encoding: .utf8) // no Herd lines
+
+    let plan = Corral.herdUninstallPlan(home: home, root: tmp + "/root")
+    #expect(plan.nvmTarget == home + "/.nvm")
+    #expect(plan.globalPackages == ["@scope/pkg", "tool"]) // npm comes with Node
+    let new = try #require(plan.shellFiles[home + "/.zshrc"])
+    #expect(new.hasPrefix("alias ll='ls -l'\n# nvm and Node.js, moved from Herd by Corral\nexport NVM_DIR=\"$HOME/.nvm\"\n"))
+    #expect(new.contains("add-zsh-hook chpwd load-nvmrc")) // Herd's zsh file switched Node with .nvmrc, so this does too
+    #expect(plan.shellFiles[home + "/.bashrc"] == nil)
+    #expect(plan.summary(removeCA: false).contains { $0.hasPrefix("Move Herd's nvm with Node.js v22.1.0, v24.0.0, with the global npm packages @scope/pkg, tool to") })
+
+    try fm.createDirectory(atPath: home + "/.nvm", withIntermediateDirectories: true) // the user has nvm already: never overwrite it
+    let kept = Corral.herdUninstallPlan(home: home, root: tmp + "/root")
+    #expect(kept.nvmTarget == nil && !(kept.shellFiles[home + "/.zshrc"] ?? "").contains("moved from Herd"))
 }
