@@ -94,6 +94,8 @@ final class Model: ObservableObject {
     @Published var filter = ""
     @Published private(set) var latestPHP: [String: String] = [:] // PHP version -> newest full version in the build list
     @Published private(set) var update: Corral.Update? // a newer release than this app
+    @Published private(set) var checkingUpdate = false
+    @Published private(set) var updateStatus: String? // the result of a click on "Check for Updates", shown next to the button
     @Published private(set) var latestTools: [String: String] = [:] // tool name -> newest version
 
     private let corral: Corral
@@ -112,6 +114,11 @@ final class Model: ObservableObject {
         watchdog = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.repair() }
         }
+        // An automatic update opens the new copy. Say so once, so the restart is not a mystery.
+        if let version = Corral.appVersion, let last = UserDefaults.standard.string(forKey: "lastVersion"), last != version {
+            notice = "Corral updated to \(version)."
+        }
+        UserDefaults.standard.set(Corral.appVersion, forKey: "lastVersion")
         checkForUpdate()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 86400, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.checkForUpdate() }
@@ -219,20 +226,25 @@ final class Model: ObservableObject {
     }
 
     /// Looks for a newer release at launch and once a day. Installs it unless "Install updates automatically" is off.
-    /// manual: a click on "Check for Updates" says so when there is none. A background check stays quiet offline.
+    /// manual: a click on "Check for Updates". It reports next to the button and never installs by itself:
+    /// the "Update to …" button that appears is the question. A background check stays quiet offline.
     func checkForUpdate(manual: Bool = false) {
-        guard busy == nil else { return }
-        if manual { busy = "Checking for updates"; error = nil }
+        guard !checkingUpdate, busy == nil else { return }
+        checkingUpdate = true
+        if manual { updateStatus = nil }
         let corral = corral
         queue.async {
             var found: Corral.Update?, message: String?
-            do { found = try corral.availableUpdate() } catch { message = manual ? error.localizedDescription : nil }
+            do { found = try corral.availableUpdate() } catch { message = error.localizedDescription }
             Task { @MainActor in
-                if manual { self.busy = nil }
+                self.checkingUpdate = false
                 self.update = found
-                if let message { self.error = message }
-                else if manual && found == nil { self.notice = "Corral is up to date." }
-                if found != nil && UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? true { self.installUpdate() }
+                if manual {
+                    self.updateStatus = message.map { "Could not check: \($0)" }
+                        ?? (found == nil ? "Corral is up to date. Checked at \(Date.now.formatted(date: .omitted, time: .shortened))." : nil)
+                } else if found != nil && UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? true {
+                    self.installUpdate()
+                }
             }
         }
     }

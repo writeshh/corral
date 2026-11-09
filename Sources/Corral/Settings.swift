@@ -522,11 +522,24 @@ struct AboutTab: View {
                 LabeledContent("Version", value: version)
                 Toggle("Install updates automatically", isOn: $autoUpdate)
                 if let update = model.update {
-                    Button("Update to \(update.version)") { model.installUpdate() }.disabled(model.busy != nil)
+                    LabeledContent("Corral \(update.version) is available.") {
+                        Button("Update and Restart") { model.installUpdate() }.disabled(model.busy != nil)
+                    }
                 } else {
-                    Button("Check for Updates") { model.checkForUpdate(manual: true) }.disabled(model.busy != nil)
+                    LabeledContent {
+                        Button("Check for Updates") { model.checkForUpdate(manual: true) }.disabled(model.busy != nil || model.checkingUpdate)
+                    } label: {
+                        if model.checkingUpdate {
+                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Checking…") }.foregroundStyle(.secondary)
+                        } else if let status = model.updateStatus {
+                            Text(status).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                    }
                 }
                 LabeledContent("Telemetry", value: "None")
+            } footer: {
+                Text("Corral looks for a new version at launch and once a day. With automatic updates on, it installs the new version and restarts. Your sites keep running.")
+                    .foregroundStyle(.secondary)
             }
             Section {
                 LabeledContent("nginx", value: "BSD 2-Clause")

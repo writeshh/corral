@@ -15,6 +15,11 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `corral run <command>` runs a development server on a free port and serves it at `https://<folder>.test` while it runs. `--name` and `--port` change the name and the port.
 - Proxy sites send a `localhost` origin to the `/_next` paths when the page comes from the site itself. Next.js hot reload then works on `.test` names without `allowedDevOrigins`.
 
+### Changed
+
+- "Check for Updates" in Settings > About shows its result next to the button: checking, up to date, or the new version with an "Update and Restart" button. A manual check no longer installs by itself. Before, the result showed only in the menu bar panel.
+- After an automatic update, the panel says which version Corral updated to.
+
 ### Fixed
 
 - The PHP build script uses the PHP version that it is asked for. Before, a cached source of another version was reused, and the weekly build did not pick up new patch releases.
