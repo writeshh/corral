@@ -91,6 +91,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral php:uninstall <version>` | Remove a PHP version that Corral installed. |
 | `corral xdebug [on\|off]` | Turn the Xdebug debug pool on or off. See [Xdebug](#xdebug). |
 | `corral wp:setup [name]` | Set up WordPress in the current folder. See [WordPress setup](#wordpress-setup). |
+| `corral new <name> [options]` | Create a Laravel project in the parked folder and serve it over HTTPS. See [New Laravel projects](#new-laravel-projects). |
 | `corral laravel:setup [name] [--seed]` | Set up a cloned Laravel project in the current folder. See [Laravel setup](#laravel-setup). |
 | `corral tools` | Show the versions of `composer`, `wp`, and `laravel`. See [Bundled tools](#bundled-tools). |
 | `corral tools:update [name]` | Update `composer`, `wp`, or `laravel` (all by default). |
@@ -269,6 +270,17 @@ In the panel, choose "Set Up Laravel…" in the site's "..." menu. The entry sho
 If the folder already has a `.env`, Corral does not change it. In this case the command runs only `composer install` and the npm build, because the file can point to a database that Corral must not change.
 For WordPress sites, Corral adds the nginx rules for multisite in subdirectories.
 Multisite with subdomains also works, because each site answers `*.<site>.test`.
+
+### New Laravel projects
+
+Run `corral new <name>` to create a Laravel project with the bundled Laravel installer.
+
+1. Corral runs `laravel new <name>` in the current folder if it is parked, else in the first parked folder (`~/Corral` by default). The installer asks for the starter kit, the database, and the other choices.
+2. Corral serves the project at `https://<name>.test`, and sets `APP_URL` in `.env` to that address.
+3. Corral opens the site in the browser.
+
+Options after the name go to the installer, for example `corral new shop --vue --database=mysql`.
+Corral adds `--no-boost`, because Laravel Boost is an AI add-on. Pass `--boost` to install it.
 
 ## Move from Laravel Herd
 

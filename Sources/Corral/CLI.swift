@@ -36,6 +36,9 @@ enum CLI {
                                    debug settings. Uses Corral's wp. Needs `mysql` in PATH.
       laravel:setup [name] [--seed]  set up a cloned Laravel project: composer, .env, key, database,
                                    migrations, npm build, HTTPS. Uses Corral's composer. Needs `mysql` in PATH.
+      new <name> [options]         create a Laravel project with `laravel new` in the parked folder (the current
+                                   folder if it is parked), then serve it at https://<name>.<tld>. Options go to
+                                   the installer. Corral adds --no-boost unless you pass --boost.
       tools                        versions of composer, wp, and laravel
       tools:update [name]          update composer, wp, or laravel (all by default). laravel:update is the same for laravel.
       open [site]
@@ -220,6 +223,15 @@ enum CLI {
                     if let v = try corral.updateTool(tool) { print("Updated \(tool.title) to \(v).") }
                     else { print("\(tool.title) is up to date (\(corral.installedTool(tool)?.version ?? "")).") }
                 }
+            case "new":
+                guard let name = arg1, !name.hasPrefix("-") else { throw CorralError("Usage: corral new <name> [laravel new options]") }
+                putBinFirst(corral)
+                let dir = corral.config.parked.contains(cwd) ? cwd : corral.config.parked.first ?? cwd
+                FileManager.default.changeCurrentDirectoryPath(dir)
+                try runLive(newCommand(Array(args.dropFirst())))
+                let host = try serveNewProject(corral, name: name, dir: dir)
+                print("https://\(host)")
+                NSWorkspace.shared.open(URL(string: "https://\(host)")!)
             case "laravel:setup":
                 putBinFirst(corral)
                 let (name, host) = try linkAndSecure(corral, args.dropFirst().first { !$0.hasPrefix("--") }, cwd)
@@ -324,6 +336,28 @@ enum CLI {
             try runLive(["npm", "install"])
             try runLive(["npm", "run", "build"])
         }
+    }
+
+    /// The installer command for `corral new`. Laravel Boost is an AI add-on, so it stays out unless asked for.
+    static func newCommand(_ args: [String]) -> [String] {
+        ["laravel", "new"] + args + (args.contains("--boost") || args.contains("--no-boost") ? [] : ["--no-boost"])
+    }
+
+    /// Serves a project that `laravel new` made in dir: HTTPS, and APP_URL in .env. A parked folder needs no link.
+    static func serveNewProject(_ corral: Corral, name: String, dir: String) throws -> String {
+        let path = dir + "/" + name
+        let host: String
+        if corral.config.parked.contains(dir) {
+            let site = try corral.site(named: name)
+            try corral.setSecure(site, true)
+            host = corral.host(site)
+        } else {
+            host = try linkAndSecure(corral, name, path).host
+        }
+        if let env = try? String(contentsOfFile: path + "/.env", encoding: .utf8) {
+            try Corral.setEnv(env, "APP_URL", "https://\(host)").write(toFile: path + "/.env", atomically: true, encoding: .utf8)
+        }
+        return host
     }
 
     /// `corral run [--name n] [--port p] <command…>`. The options end at the first word that is not an option.

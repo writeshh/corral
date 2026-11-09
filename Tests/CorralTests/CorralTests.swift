@@ -687,3 +687,24 @@ import Testing
     let port = try CLI.freePort()
     #expect(port > 1024 && port <= 65535)
 }
+
+@Test func newLaravelProject() throws {
+    #expect(CLI.newCommand(["shop"]) == ["laravel", "new", "shop", "--no-boost"]) // Boost is an AI add-on: off unless asked
+    #expect(CLI.newCommand(["shop", "--boost"]) == ["laravel", "new", "shop", "--boost"])
+
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let parked = tmp + "/Sites", other = tmp + "/elsewhere"
+    for dir in [parked + "/shop", other + "/blog"] { try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true) }
+    try "APP_NAME=Laravel\nAPP_URL=http://localhost:8000\n".write(toFile: parked + "/shop/.env", atomically: true, encoding: .utf8)
+    let c = Corral(home: tmp + "/home")
+    c.config.parked = [parked]
+    try c.ensureCA() // a new CA would ask the keychain to trust it
+
+    #expect(try CLI.serveNewProject(c, name: "shop", dir: parked) == "shop.test")
+    #expect(c.config.secured.contains("shop") && c.config.links.isEmpty) // parked: no link needed
+    #expect(try String(contentsOfFile: parked + "/shop/.env", encoding: .utf8) == "APP_NAME=Laravel\nAPP_URL=https://shop.test\n")
+
+    #expect(try CLI.serveNewProject(c, name: "blog", dir: other) == "blog.test") // not parked: linked
+    #expect(c.config.links["blog"] == other + "/blog" && c.config.secured.contains("blog"))
+}
