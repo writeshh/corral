@@ -105,6 +105,7 @@ import Testing
     #expect(conf.contains("proxy_ssl_name shop.localhost;"))
     #expect(conf.contains("proxy_pass http://127.0.0.1:3000;"))
     #expect(conf.contains("map $http_upgrade $connection_upgrade"))
+    #expect(conf.contains("proxy_set_header Origin $corral_origin;")) // Next.js hot reload on a .test name
     #expect(!conf.contains("fastcgi_pass")) // proxies never touch PHP
 
     // A broken config.json is never overwritten.
@@ -676,3 +677,4 @@ import Testing
     FileManager.default.createFile(atPath: tmp + "/proxy.tls", contents: nil)
     #expect(Corral.portlessURL(host: "web.localhost", dir: tmp)?.absoluteString == "https://web.localhost:1355")
 }
+

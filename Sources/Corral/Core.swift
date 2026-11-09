@@ -532,6 +532,9 @@ final class Corral: @unchecked Sendable {
             fastcgi_temp_path "\(run)/tmp/fastcgi";
 
             map $http_upgrade $connection_upgrade { default upgrade; "" close; }
+            # Next.js dev servers serve /_next and /__nextjs only to localhost origins. A page on its own Corral name
+            # sends Origin https://<site>.<tld>, so a proxy sends a localhost origin for those paths. Other origins stay.
+            map "$scheme://$host $http_origin $uri" $corral_origin { default $http_origin; "~^(\\S+) \\1 \\S*/(_next|__nextjs)" "http://localhost"; }
             \(debugging.isEmpty ? "" : "# A request that asks for a debug session goes to the pool with Xdebug.\n            map \"$cookie_XDEBUG_SESSION$cookie_XDEBUG_TRIGGER$arg_XDEBUG_SESSION$arg_XDEBUG_SESSION_START$arg_XDEBUG_TRIGGER\" $corral_debug { default 1; \"\" 0; }")
 
             server { listen 127.0.0.1:\(Self.httpPort) default_server; return 404 "No Corral site here.\\n"; }
@@ -584,6 +587,7 @@ final class Corral: @unchecked Sendable {
                     proxy_set_header Host "\(host)\(port)";
                     proxy_set_header Upgrade $http_upgrade;
                     proxy_set_header Connection $connection_upgrade;
+                    proxy_set_header Origin $corral_origin;
                     proxy_set_header X-Forwarded-Host $host;
                     proxy_set_header X-Forwarded-Proto $scheme;
                     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
