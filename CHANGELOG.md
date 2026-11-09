@@ -15,6 +15,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `corral run <command>` runs a development server on a free port and serves it at `https://<folder>.test` while it runs. `--name` and `--port` change the name and the port.
 - `corral new <name>` creates a Laravel project with the bundled installer in the parked folder, serves it over HTTPS, and sets `APP_URL`. Corral adds `--no-boost` unless you pass `--boost`.
 - `corral mail`, `mail:show`, `mail:links`, and `mail:clear` list, print, and delete the mail that Corral caught. `mail:links` undoes quoted-printable, so a wrapped link prints whole.
+- `corral wp:import <dump>` and "Import Database…" in the site menu import a SQL dump (`.sql` or `.sql.gz`) into a WordPress site with `mysqli`, then replace the old address with `https://<site>.test` through `wp search-replace`.
 - Proxy sites send a `localhost` origin to the `/_next` paths when the page comes from the site itself. Next.js hot reload then works on `.test` names without `allowedDevOrigins`.
 
 ### Changed

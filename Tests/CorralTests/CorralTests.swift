@@ -724,3 +724,21 @@ import Testing
     let raw = "Content-Transfer-Encoding: quoted-printable\r\n\r\n<a href=3D\"https://shop.test/verify?id=3D7&amp;sig=3Dab=\r\ncd\">Verify</a> https://shop.test/verify?id=3D7&amp;sig=3Dabcd http://x.test/a."
     #expect(MailMessage.links(raw) == ["https://shop.test/verify?id=7&sig=abcd", "http://x.test/a"]) // &amp; decoded, end-of-sentence dot dropped
 }
+
+@Test func wordPressImport() throws {
+    #expect(Corral.wpHost("https://shop.example.com:8080/wp") == "shop.example.com:8080")
+    #expect(Corral.wpHost("not a url") == nil)
+
+    // A fake wp and php: record each command, answer like the real ones (notices first, the value last).
+    var ran: [[String]] = []
+    let answers = ["DB_NAME": "wp_shop", "DB_USER": "root", "DB_PASSWORD": "", "DB_HOST": "127.0.0.1", "siteurl": "Deprecated: x\nhttp://shop.se"]
+    let summary = try Corral.wpImport(dump: "/d.sql", host: "shop.test") { argv in
+        ran.append(argv)
+        if argv.contains("php") { return "Imported 3 statements into wp_shop." }
+        return answers[argv[argv.count > 3 ? 3 : argv.count - 1]] ?? ""
+    }
+    #expect(ran.contains { $0.starts(with: ["DB_NAME=wp_shop", "DB_USER=root", "DB_PASSWORD=", "DB_HOST=127.0.0.1", "php"]) && $0.last == "/d.sql" })
+    #expect(ran.contains { $0.starts(with: ["wp", "search-replace", "//shop.se", "//shop.test"]) && $0.contains("--skip-columns=guid") })
+    #expect(ran.last!.starts(with: ["wp", "search-replace", "http://shop.test", "https://shop.test"]))
+    #expect(summary == "Imported 3 statements into wp_shop. Replaced shop.se with shop.test.")
+}

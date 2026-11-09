@@ -91,6 +91,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral php:uninstall <version>` | Remove a PHP version that Corral installed. |
 | `corral xdebug [on\|off]` | Turn the Xdebug debug pool on or off. See [Xdebug](#xdebug). |
 | `corral wp:setup [name]` | Set up WordPress in the current folder. See [WordPress setup](#wordpress-setup). |
+| `corral wp:import <dump> [name]` | Import a SQL dump into a WordPress site and change its address to `<name>.test`. See [WordPress setup](#wordpress-setup). |
 | `corral new <name> [options]` | Create a Laravel project in the parked folder and serve it over HTTPS. See [New Laravel projects](#new-laravel-projects). |
 | `corral laravel:setup [name] [--seed]` | Set up a cloned Laravel project in the current folder. See [Laravel setup](#laravel-setup). |
 | `corral mail [inbox]` | List the mail that Corral caught, newest first. See [Insights](#insights). |
@@ -256,6 +257,22 @@ Use this command for local development only. The admin password is not secret.
 
 The panel runs the same steps. Open the site's "..." menu and choose "Set Up WordPress…". The entry shows only for a site that has `wp-content` or `wp-load.php` but no `wp-config.php`.
 If a step fails, the panel shows the end of its output.
+
+#### Import a database
+
+After a clone, the site usually needs the database from production or staging.
+Export it there, for example with `wp db export`, then run this in the site folder:
+
+```sh
+corral wp:import ~/Downloads/shop.sql.gz
+```
+
+1. Corral reads the connection from `wp-config.php`. It creates the database when it does not exist.
+2. Corral imports the dump (`.sql` or `.sql.gz`) with its own PHP (`mysqli`). It does not need the `mysql` client.
+3. Corral reads `siteurl` from the imported data, and replaces the old address with `https://<name>.test` in all tables with the WordPress table prefix. It uses `wp search-replace`, which also changes serialized data. It does not change the `guid` column.
+
+The tables in the dump replace the tables in the database. In the panel, choose "Import Database…" in the site's "..." menu. The entry shows for a site with `wp-config.php`.
+Corral cannot import a dump with `DELIMITER` blocks (stored procedures). Use the `mysql` client for such a file.
 
 ### Laravel setup
 

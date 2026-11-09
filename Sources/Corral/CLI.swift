@@ -32,6 +32,8 @@ enum CLI {
       xdebug [on|off] [--mode m] [--host h] [--port n] [--start yes|trigger]
                                    debug pool: a second php-fpm with Xdebug. A request goes to it only
                                    with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument.
+      wp:import <dump> [name]      import a SQL dump (.sql or .sql.gz) into the site's database, then replace
+                                   the old address with https://<name>.<tld>. Needs wp-config.php.
       wp:setup [name]              set up WordPress in the current folder: database, core, config, HTTPS,
                                    debug settings. Uses Corral's wp and php.
       laravel:setup [name] [--seed]  set up a cloned Laravel project: composer, .env, key, database,
@@ -213,6 +215,18 @@ enum CLI {
                 for step in wpSetupSteps(name: name, host: host, dir: cwd) { try runLive(step) }
                 print("https://\(host)/wp-admin  (user admin, password admin)")
                 NSWorkspace.shared.open(URL(string: "https://\(host)/wp-admin")!)
+            case "wp:import":
+                guard let arg1 else { throw CorralError("Usage: corral wp:import <dump.sql or dump.sql.gz> [name]") }
+                let dump = absolute(arg1, cwd)
+                guard FileManager.default.fileExists(atPath: dump) else { throw CorralError("No file \(dump).") }
+                guard FileManager.default.fileExists(atPath: cwd + "/wp-config.php") else {
+                    throw CorralError("No wp-config.php in \(cwd). Run corral wp:setup first.")
+                }
+                putBinFirst(corral)
+                let (_, host) = try linkAndSecure(corral, arg2, cwd)
+                print("Importing \(dump)…")
+                print(try Corral.wpImport(dump: dump, host: host) { try Corral.sh("/usr/bin/env", $0) })
+                print("https://\(host)")
             case "tools":
                 for tool in Corral.tools {
                     let have = corral.installedTool(tool)

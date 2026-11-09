@@ -868,6 +868,9 @@ struct SiteRow: View {
                 }
             }
         }
+        if site.proxy == nil && FileManager.default.fileExists(atPath: site.path + "/wp-config.php") {
+            Button("Import Database…") { importDump(site) }
+        }
         if site.proxy == nil && Corral.needsLaravelSetup(site.path) {
             Button("Set Up Laravel…") {
                 model.run("Setting up \(site.name)") { c in
@@ -892,6 +895,22 @@ struct SiteRow: View {
                 Text("Global (\(model.snap.globalPHP ?? "none"))").tag("")
                 ForEach(model.snap.versions, id: \.self) { Text("PHP \($0)").tag($0) }
             }
+        }
+    }
+}
+
+extension SiteRow {
+    /// Asks for a SQL dump, then imports it. The old address becomes this site's address.
+    func importDump(_ site: Site) {
+        NSApp.activate()
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "sql"), .init(filenameExtension: "gz")].compactMap { $0 }
+        panel.prompt = "Import"
+        panel.message = "The dump replaces the tables in the database of \(site.name). Corral then changes the old address to \(row.host)."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        model.run("Importing into \(site.name)") { c in
+            let summary = try c.importWordPressDump(site, dump: url.path)
+            Task { @MainActor in model.notice = summary }
         }
     }
 }
