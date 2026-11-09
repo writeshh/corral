@@ -93,8 +93,8 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral wp:setup [name]` | Set up WordPress in the current folder. See [WordPress setup](#wordpress-setup). |
 | `corral profile <url>` | Profile one request with Xdebug and print the cachegrind file. See [Profiler](#profiler). |
 | `corral profiles` | List the profiler files. |
-| `corral queries [on\|off]` | Record the SQL queries of Laravel and WordPress requests. See [Insights](#insights). |
-| `corral queries:list [n]` | Print the queries of the newest `n` requests. |
+| `corral queries [on\|off]` | Record the SQL queries, HTTP calls, and cache and queue events of Laravel and WordPress requests. See [Insights](#insights). |
+| `corral queries:list [n]` | Print what the newest `n` requests recorded. |
 | `corral wp:defaults [options]` | Show or change the admin user, password, email, locale, and table prefix of `wp:setup`. |
 | `corral wp:import <dump> [name]` | Import a SQL dump into a WordPress site and change its address to `<name>.test`. See [WordPress setup](#wordpress-setup). |
 | `corral new <name> [options]` | Create a Laravel project in the parked folder and serve it over HTTPS. See [New Laravel projects](#new-laravel-projects). |
@@ -233,13 +233,13 @@ Insights shows information from your sites. All of it stays on your Mac.
 - **Dumps**: turn on "Send dump() to Corral". Then `dump()` and `dd()` in Laravel and Symfony sites show in Insights, not in the page. Corral uses the server mode of Symfony VarDumper on port 9912. Insights keeps the newest 1000 dumps.
 - **Logs**: the Laravel logs in `storage/logs`, the WordPress `wp-content/debug.log`, and the nginx and PHP-FPM logs. Insights reads the file again every 2 seconds.
 - **Mail**: turn on "Catch mail on 127.0.0.1:2525". Corral receives each message that a site sends with SMTP to this address, and keeps the newest 1000. Click a message to preview it. For a Laravel site, click "Send Mail to Corral" in the site menu. Corral then changes the `MAIL_` values in `.env`, and keeps the original file as `.env.corral.bak`. In a terminal, `corral mail` lists the messages, and `corral mail:links` prints the links of the newest one.
-- **Queries**: turn on "Record queries", or run `corral queries on`. Each request of a Laravel or WordPress site then records its SQL queries, with the time of each query and the code that ran it. Insights shows the newest 200 requests, marks queries slower than 100 ms, and counts repeated queries (often an N+1 problem). `corral queries:list [n]` prints the newest `n` requests.
+- **Requests**: turn on "Record requests", or run `corral queries on`. Each request of a Laravel or WordPress site then records its SQL queries (with the time and the code that ran each one) and its outgoing HTTP calls (with status and time). Laravel sites also record cache events (hits, misses, writes, deletes, grouped by key) and queue events (jobs queued, and jobs that run or fail in the request). Insights shows the newest 200 requests, marks queries slower than 100 ms and HTTP calls slower than 1 s, and counts repeated queries (often an N+1 problem). `corral queries:list [n]` prints the newest `n` requests. Queue workers (`php artisan queue:work`) run outside PHP-FPM, so Corral does not record the jobs that they run.
 
-How the query recording works:
+How the recording works:
 
 - Corral adds `auto_prepend_file` to each PHP-FPM pool. The file runs before the site's code.
-- In Laravel, it listens for the `QueryExecuted` event. In WordPress, it turns on `SAVEQUERIES` and reads `$wpdb->queries` at the end of the request.
-- Each request with queries adds one line to `logs/queries.jsonl` in Corral's folder. The file starts again at 20 MB.
+- In Laravel, it listens for the query, HTTP client, cache, and queue events. In WordPress, it turns on `SAVEQUERIES` and reads `$wpdb->queries` at the end of the request, and it adds the `pre_http_request` and `http_api_debug` hooks before WordPress loads.
+- Each request with something to show adds one line to `logs/queries.jsonl` in Corral's folder. The file starts again at 20 MB.
 - Other PHP code records nothing. A site that sets its own `auto_prepend_file` (for example in `.user.ini`) keeps it, and records nothing.
 - If `wp-config.php` defines `SAVEQUERIES`, PHP shows a warning that the constant is already defined. Remove the line while you record queries.
 

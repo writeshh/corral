@@ -769,6 +769,13 @@ import Testing
     #expect(requests.map(\.url) == ["shop.test/list", "shop.test/"]) // newest first, the half-written line is skipped
     #expect(requests[0].repeated == 1 && requests[0].totalMs == 2)
     #expect(requests[1].queries[0].filled == "select * from users where id = 7 and name = 'O''Brien'")
+
+    // HTTP calls, cache events and jobs come in the same line. A request can have them without queries.
+    let more = Corral.queryRequests(#"{"time":4,"method":"GET","url":"shop.test/pay","queries":[],"http":[{"method":"POST","url":"https://api.test/charge","status":201,"ms":120.5},{"method":"GET","url":"http://127.0.0.1:9/","status":null,"error":"Connection failed"}],"cache":[{"op":"hit","key":"a"},{"op":"miss","key":"b"},{"op":"hit","key":"a"}],"jobs":[{"event":"queued","job":"App\\Jobs\\Mail","queue":"database"}]}"#)
+    #expect(more.count == 1 && more[0].http?.count == 2 && more[0].http?[1].status == nil)
+    #expect(more[0].counts == "2 HTTP · 3 cache (2 hits) · 1 job")
+    #expect(more[0].jobs?.first?.job == "App\\Jobs\\Mail")
+    #expect(c.queriesPHP.contains("Illuminate\\Http\\Client\\Events\\ResponseReceived") && c.queriesPHP.contains("['wp_filter']['http_api_debug']"))
 }
 
 @Test func xdebugProfiler() throws {

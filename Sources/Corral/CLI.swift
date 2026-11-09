@@ -37,8 +37,9 @@ enum CLI {
                                    with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument.
       profile <url>                request a URL with an XDEBUG_PROFILE cookie and print the cachegrind file it wrote
       profiles                     list profiler files. Corral deletes them after 7 days, and the oldest above 1 GB.
-      queries [on|off]             record the SQL queries of Laravel and WordPress requests for Insights > Queries
-      queries:list [n]             print the queries of the newest n requests (default 1)
+      queries [on|off]             record the SQL queries, HTTP calls, cache and queue events of Laravel and
+                                   WordPress requests for Insights > Requests
+      queries:list [n]             print what the newest n requests recorded (default 1)
       wp:defaults [--user u] [--password p] [--email e] [--locale l] [--prefix p]
                                    the admin user, password, email, locale and table prefix of wp:setup
       wp:import <dump> [name]      import a SQL dump (.sql or .sql.gz) into the site's database, then replace
@@ -263,7 +264,12 @@ enum CLI {
                 let requests = Corral.queryRequests(Corral.tail(corral.queryLog, bytes: 2 << 20)).prefix(Int(arg1 ?? "1") ?? 1)
                 if requests.isEmpty { print("No queries yet.") }
                 for r in requests.reversed() {
-                    print("\(r.method) \(r.url)  \(r.queries.count) queries, \(r.totalMs.formatted(.number.precision(.fractionLength(1)))) ms\(r.repeated > 0 ? ", \(r.repeated) repeated" : "")")
+                    print("\(r.method) \(r.url)  \(r.counts)\(r.repeated > 0 ? ", \(r.repeated) repeated" : "")")
+                    for h in r.http ?? [] { print("  HTTP \(h.method) \(h.url) \(h.status.map(String.init) ?? h.error ?? "failed")\(h.ms.map { " \(Int($0)) ms" } ?? "")") }
+                    for (key, ops) in Dictionary(grouping: r.cache ?? [], by: \.key).sorted(by: { $0.key < $1.key }) {
+                        print("  cache \(key): " + Dictionary(grouping: ops, by: \.op).sorted { $0.key < $1.key }.map { "\($0.value.count) \($0.key)" }.joined(separator: ", "))
+                    }
+                    for j in r.jobs ?? [] { print("  job \(j.event) \(j.job)\(j.error.map { ": \($0)" } ?? "")") }
                     for q in r.queries { print("  \(q.ms.formatted(.number.precision(.fractionLength(2)))) ms  \(q.filled)\(q.caller.map { "  [\($0)]" } ?? "")") }
                 }
             case "profile":

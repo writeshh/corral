@@ -145,7 +145,7 @@ struct InsightsView: View {
             ToolbarItem(placement: .principal) {
                 Picker("View", selection: $tab) {
                     Text("Dumps").tag("dumps")
-                    Text("Queries").tag("queries")
+                    Text("Requests").tag("queries")
                     Text("Profiles").tag("profiles")
                     Text("Logs").tag("logs")
                     Text("Mail").tag("mail")
