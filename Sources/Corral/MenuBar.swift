@@ -203,6 +203,51 @@ final class Model: ObservableObject {
         }
     }
 
+    /// Shows what goes, then uninstalls Herd on confirmation. Herd Pro data and the Valet CA each need their own yes.
+    func uninstallHerd() {
+        busy = "Reading Herd"
+        error = nil
+        queue.async {
+            let plan = Corral.herdUninstallPlan()
+            Task { @MainActor in
+                self.busy = nil
+                guard !plan.isEmpty else { self.notice = "Herd is not installed."; return }
+                self.confirmUninstall(plan)
+            }
+        }
+    }
+
+    private func confirmUninstall(_ plan: HerdUninstall) {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "Uninstall Herd?"
+        alert.informativeText = plan.summary(removeCA: false).joined(separator: "\n")
+            + "\n\nHerd.app and its folder stay in the Trash until you empty it. Corral asks for your password once."
+        alert.addButton(withTitle: "Uninstall")
+        alert.addButton(withTitle: "Cancel")
+        if plan.valetCA {
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = "Also remove the Laravel Valet CA from the System keychain"
+            alert.suppressionButton?.state = .off
+        }
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let removeCA = plan.valetCA && alert.suppressionButton?.state == .on
+        if let services = plan.services {
+            let data = NSAlert()
+            data.alertStyle = .critical
+            data.messageText = "Herd Pro data goes to the Trash"
+            data.informativeText = "\(services.path) holds Herd Pro databases and storage (\(ByteCountFormatter.string(fromByteCount: Int64(services.size), countStyle: .file))). Export what you need first."
+            data.addButton(withTitle: "Cancel")
+            data.addButton(withTitle: "Move to Trash")
+            guard data.runModal() == .alertSecondButtonReturn else { return }
+        }
+        run("Uninstalling Herd") { c in
+            let problems = try c.uninstallHerd(plan, removeCA: removeCA)
+            let text = problems.isEmpty ? "Herd is uninstalled. Herd.app and its folder are in the Trash. Open a new terminal." : "Herd is uninstalled, with problems: " + problems.joined(separator: " ")
+            Task { @MainActor in self.notice = text }
+        }
+    }
+
     func setLaunchAtLogin(_ on: Bool) {
         run(nil) { _ in try on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister() }
     }
@@ -715,6 +760,9 @@ struct Panel: View {
                 ))
                 if model.snap.herdFound {
                     Button("Move from Herd…", action: model.moveFromHerd).disabled(model.busy != nil)
+                }
+                if model.snap.ownsTest && FileManager.default.fileExists(atPath: "/Applications/Herd.app") {
+                    Button("Uninstall Herd…", action: model.uninstallHerd).disabled(model.busy != nil)
                 }
                 Button("Restart Services") { model.run("Restarting") { c in c.stop(); try c.start() } }
                     .disabled(!model.running)

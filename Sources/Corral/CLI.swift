@@ -10,6 +10,9 @@ enum CLI {
                    [--yes]         and proxies, quit Herd, take over .test, then check every site
       migrate:herd --undo          give .test back to Herd. Herd's own files never change.
       import:herd                  only copy the Herd settings (the first part of migrate:herd)
+      uninstall:herd [--dry-run] [--yes] [--remove-ca] [--include-services]
+                                   remove Herd after a move: its helper, sudoers file, shell lines and settings.
+                                   Herd.app and its folder go to the Trash. Shows the list and asks first.
       start | stop | restart       nginx, dnsmasq, php-fpm
       status                       service state
       park [dir] | forget [dir]    serve every subfolder of dir as <folder>.<tld>
@@ -113,6 +116,33 @@ enum CLI {
                 print(problems.isEmpty ? "Done. Every site answers." : "Done. These sites need attention:")
                 for p in problems { print("  \(p.site): \(p.problem)") }
                 print("To go back: corral migrate:herd --undo")
+            case "uninstall:herd":
+                let flags = Set(args.dropFirst())
+                let plan = Corral.herdUninstallPlan()
+                guard !plan.isEmpty else { print("Herd is not installed. Nothing to remove."); break }
+                var removeCA = flags.contains("--remove-ca")
+                print("Corral will do this:")
+                plan.summary(removeCA: removeCA).forEach { print("  " + $0) }
+                if !plan.removesResolver && FileManager.default.fileExists(atPath: "/etc/resolver/test") { print("  /etc/resolver/test stays: it sends .test to Corral.") }
+                if plan.valetCA && !removeCA { print("  The Laravel Valet CA stays in the System keychain. Corral asks about it, or pass --remove-ca.") }
+                if flags.contains("--dry-run") { print("Dry run: nothing changed."); break }
+                guard confirm("Uninstall Herd?", flags) else { break }
+                if let services = plan.services {
+                    // Herd Pro databases: never on --yes alone.
+                    let size = ByteCountFormatter.string(fromByteCount: Int64(services.size), countStyle: .file)
+                    guard flags.contains("--include-services") || confirm("\(services.path) holds Herd Pro databases and storage (\(size)). Export what you need first. Move them to the Trash with the folder?", flags.subtracting(["--yes"])) else {
+                        print("Stopped. Nothing changed. Back up config/services, then run this again.")
+                        break
+                    }
+                }
+                if plan.valetCA && !removeCA {
+                    removeCA = confirm("Also remove the Laravel Valet CA from the System keychain? Laravel Valet uses the same CA.", flags.subtracting(["--yes"]))
+                }
+                let problems = try corral.uninstallHerd(plan, removeCA: removeCA)
+                print(problems.isEmpty ? "Herd is uninstalled. Herd.app and its folder are in the Trash until you empty it." : "Herd is uninstalled, with these problems:")
+                problems.forEach { print("  " + $0) }
+                if corral.config.tld == Corral.sharedTLD && !corral.ownsTest { print(".test does not go to Corral yet. Run: corral install") }
+                print("Open a new terminal, so the shell no longer uses Herd's PATH.")
             case "takeover":
                 try corral.takeover()
                 print(".\(Corral.sharedTLD) now goes to Corral. Run `corral handback` before you start Herd again.")

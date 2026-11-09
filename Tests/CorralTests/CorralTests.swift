@@ -822,3 +822,62 @@ import Testing
         #expect(x.problem != nil)
     }
 }
+
+@Test func herdUninstall() throws {
+    let fm = FileManager.default
+    let tmp = fm.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? fm.removeItem(atPath: tmp) }
+    let home = tmp + "/home", root = tmp + "/root", herd = home + "/Library/Application Support/Herd"
+
+    // Shell files: Herd's lines go. Another nvm install keeps its loader line.
+    let zshrc = """
+    export PATH="/opt/homebrew/bin:$PATH"
+    # Herd injected PHP binary.
+    export PATH="\(herd)/bin/":$PATH
+    # Herd injected PHP 8.4 configuration.
+    export HERD_PHP_84_INI_SCAN_DIR="\(herd)/config/php/84/"
+    # Herd injected NVM configuration
+    export NVM_DIR="\(herd)/config/nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"  # This loads nvm
+    [[ -f "/Applications/Herd.app/Contents/Resources/config/shell/zshrc.zsh" ]] && builtin source "/Applications/Herd.app/Contents/Resources/config/shell/zshrc.zsh"
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"  # This loads nvm
+    alias phplog='cursor "\(herd)/Log/php-fpm.log"'
+    """
+    #expect(Corral.withoutHerdLines(zshrc, home: home) == """
+    export PATH="/opt/homebrew/bin:$PATH"
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"  # This loads nvm
+    alias phplog='cursor "\(herd)/Log/php-fpm.log"'
+    """) // the user's own alias stays, even though it names Herd's folder
+
+    #expect(Corral.herdUninstallPlan(home: home, root: root).isEmpty) // no Herd: nothing to do
+
+    for dir in [herd + "/config/services/mysql", herd + "/config/nvm/versions/node/v22.1.0", herd + "/config/nvm/versions/node/v9.0.0",
+                root + "/Applications/Herd.app", root + "/Library/PrivilegedHelperTools", root + "/etc/resolver"] {
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    }
+    fm.createFile(atPath: herd + "/config/services/mysql/ibdata1", contents: Data(count: 4096))
+    fm.createFile(atPath: root + Corral.herdHelper, contents: nil)
+    try zshrc.write(toFile: home + "/.zshrc", atomically: true, encoding: .utf8)
+    try "nameserver 127.0.0.1\nport 53535\n".write(toFile: root + "/etc/resolver/test", atomically: true, encoding: .utf8) // Corral's
+
+    var plan = Corral.herdUninstallPlan(home: home, root: root)
+    #expect(plan.app == root + "/Applications/Herd.app" && plan.support == herd)
+    #expect(plan.services?.path == herd + "/config/services" && plan.services!.size > 0)
+    #expect(plan.nodeVersions == ["v9.0.0", "v22.1.0"])
+    #expect(plan.shellFiles.keys.sorted() == [home + "/.zshrc"])
+    #expect(plan.rootFiles == [Corral.herdHelper] && !plan.removesResolver) // Corral's resolver file stays
+
+    let script = Corral.herdUninstallScript(plan, removeCA: false)
+    #expect(script.contains("\"\(Corral.herdHelper)\" uninstall") && script.contains("rm -f \"\(Corral.herdHelper)\""))
+    #expect(!script.contains("/etc/resolver/test") && !script.contains("delete-certificate"))
+    #expect(plan.summary(removeCA: false).contains { $0.contains("Herd Pro service data") })
+
+    try "nameserver 127.0.0.1\n".write(toFile: root + "/etc/resolver/test", atomically: true, encoding: .utf8) // Herd's
+    plan = Corral.herdUninstallPlan(home: home, root: root)
+    plan.valetCA = true
+    #expect(plan.removesResolver)
+    let withCA = Corral.herdUninstallScript(plan, removeCA: true)
+    #expect(withCA.contains("rm -f /etc/resolver/test") && withCA.contains("delete-certificate -c \"Laravel Valet CA Self Signed CN\""))
+}

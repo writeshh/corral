@@ -116,6 +116,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral takeover` | Send `.test` to Corral in place of Laravel Herd. |
 | `corral handback` | Give `.test` back to Laravel Herd. |
 | `corral migrate:herd` | Move from Laravel Herd. Add `--dry-run` to see the changes first, or `--undo` to give `.test` back to Herd. |
+| `corral uninstall:herd [--dry-run]` | Remove Herd after the move. Herd.app and its folder go to the Trash. See [Uninstall Herd](#uninstall-herd). |
 | `corral import:herd` | Copy the settings from Laravel Herd only. This is the first part of `migrate:herd`. |
 | `corral uninstall` | Remove the system configuration. |
 
@@ -364,6 +365,27 @@ To use Herd again, run this command, then start Herd:
 ```sh
 corral migrate:herd --undo
 ```
+
+### Uninstall Herd
+
+After the move, run `corral uninstall:herd --dry-run` to see what goes, then `corral uninstall:herd`.
+In the panel, choose "Uninstall Herd…" in the "..." menu. The entry shows when Corral serves `.test` and `/Applications/Herd.app` exists.
+
+The steps follow Herd's own uninstall script (`Herd.app/Contents/Resources/uninstall`) and Herd's docs page "Uninstalling":
+
+1. Quit Herd, and stop Herd's processes.
+2. Remove Herd's privileged helper, its LaunchDaemon, and `/etc/sudoers.d/herd`. This needs your password once.
+3. Remove `/etc/resolver/test` only when it is Herd's file. When it sends `.test` to Corral, it stays.
+4. Remove Herd from the login items, and remove Herd's lines from `~/.zshrc`, `~/.bashrc`, and `~/.bash_profile`. Corral keeps a copy of each changed file as `<file>.corral-herd.bak`.
+5. Delete Herd's settings (`defaults delete de.beyondco.herd`).
+6. Move `~/Library/Application Support/Herd` and `Herd.app` to the Trash. Corral does not delete them, so you can get them back until you empty the Trash.
+
+Read the list before you confirm:
+
+- Herd Pro databases and storage are in `config/services` in Herd's folder. When this folder has data, Corral asks again. `--yes` alone does not accept it. Export the data first, or pass `--include-services`.
+- Herd's folder also holds the Node.js versions of Herd's nvm. After the step, install Node another way, for example `brew install node`.
+- The "Laravel Valet CA" stays in the System keychain unless you agree, or pass `--remove-ca`. Laravel Valet uses the same CA.
+- After this step, `corral migrate:herd --undo` no longer works.
 
 ### Use Corral next to Laravel Herd
 
