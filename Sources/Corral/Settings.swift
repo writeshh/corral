@@ -126,7 +126,7 @@ struct GeneralTab: View {
     private func applyDomains() {
         let label = /^[a-z0-9-]+$/
         let tld = domains.tld.lowercased().trimmingCharacters(in: .whitespaces)
-        let aliases = domains.aliases.lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let aliases = domains.aliases.lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && $0 != tld }
         guard ([tld] + aliases).allSatisfy({ $0.wholeMatch(of: label) != nil }) else {
             model.error = "A TLD can have only letters, digits and hyphens, for example test or internal."
             return

@@ -26,6 +26,7 @@ struct Config: Codable, Equatable {
         tld = try c.decodeIfPresent(String.self, forKey: .tld) ?? d.tld
         // Before aliases existed, every site also answered .test. Keep that for old configs.
         aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? (tld == Corral.sharedTLD ? [] : [Corral.sharedTLD])
+        aliases.removeAll { $0 == tld } // left over when the main TLD changed to an old extra TLD
         php = try c.decodeIfPresent(String.self, forKey: .php)
         parked = try c.decodeIfPresent([String].self, forKey: .parked) ?? d.parked
         links = try c.decodeIfPresent([String: String].self, forKey: .links) ?? d.links

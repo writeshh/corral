@@ -36,6 +36,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Section footers in Settings are aligned to the leading edge. The Settings window aligned multi-line footers to the right.
+- Settings > General no longer shows the main TLD as an extra TLD. Corral drops an extra TLD that is the same as the main TLD, for example after the main TLD changed from `internal` to `test`.
 - The menu bar app no longer changes `~/.zshrc` when it runs with a Corral home other than the default one (`CORRAL_HOME`, tests). Before, it put that home's `bin` folder first in `PATH`.
 - The Insights window shows errors from its dumps and mail switches. Before, they showed only in the menu bar panel.
 - The PHP build script uses the PHP version that it is asked for. Before, a cached source of another version was reused, and the weekly build did not pick up new patch releases.

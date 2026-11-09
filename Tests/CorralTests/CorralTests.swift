@@ -365,6 +365,7 @@ import Testing
     #expect(try load(#"{"tld": "internal"}"#).aliases == ["test"])
     #expect(try load(#"{"tld": "test"}"#).aliases == [])
     #expect(try load(#"{"tld": "internal", "aliases": []}"#).aliases == [])
+    #expect(try load(#"{"tld": "test", "aliases": ["test", "internal"]}"#).aliases == ["internal"]) // the main TLD is not an extra one
     #expect(Config().tld == "test" && Config().aliases.isEmpty)
 
     let c = Corral(home: tmp + "/home")
