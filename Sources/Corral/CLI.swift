@@ -32,6 +32,8 @@ enum CLI {
       xdebug [on|off] [--mode m] [--host h] [--port n] [--start yes|trigger]
                                    debug pool: a second php-fpm with Xdebug. A request goes to it only
                                    with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument.
+      queries [on|off]             record the SQL queries of Laravel and WordPress requests for Insights > Queries
+      queries:list [n]             print the queries of the newest n requests (default 1)
       wp:import <dump> [name]      import a SQL dump (.sql or .sql.gz) into the site's database, then replace
                                    the old address with https://<name>.<tld>. Needs wp-config.php.
       wp:setup [name]              set up WordPress in the current folder: database, core, config, HTTPS,
@@ -207,6 +209,20 @@ enum CLI {
                 let versions = corral.debugVersions(corral.phpVersions())
                 print("Xdebug \(x.enabled ? "on" : "off"): mode \(x.mode), client \(x.clientHost):\(x.clientPort), start with request \(x.startWithRequest)")
                 if x.enabled { print("Debug pool for PHP \(versions.joined(separator: ", ")).") }
+            case "queries":
+                if let word = arg1 {
+                    guard word == "on" || word == "off" else { throw CorralError("Usage: corral queries [on|off]") }
+                    corral.config.queries = word == "on"
+                    try corral.apply()
+                }
+                print("Query recording \(corral.config.queries ? "on" : "off"). Log: \(corral.queryLog)")
+            case "queries:list":
+                let requests = Corral.queryRequests(Corral.tail(corral.queryLog, bytes: 2 << 20)).prefix(Int(arg1 ?? "1") ?? 1)
+                if requests.isEmpty { print("No queries yet.") }
+                for r in requests.reversed() {
+                    print("\(r.method) \(r.url)  \(r.queries.count) queries, \(r.totalMs.formatted(.number.precision(.fractionLength(1)))) ms\(r.repeated > 0 ? ", \(r.repeated) repeated" : "")")
+                    for q in r.queries { print("  \(q.ms.formatted(.number.precision(.fractionLength(2)))) ms  \(q.filled)\(q.caller.map { "  [\($0)]" } ?? "")") }
+                }
             case "open":
                 NSWorkspace.shared.open(corral.url(try corral.site(named: arg1)))
             case "wp:setup":

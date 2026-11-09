@@ -742,3 +742,23 @@ import Testing
     #expect(ran.last!.starts(with: ["wp", "search-replace", "http://shop.test", "https://shop.test"]))
     #expect(summary == "Imported 3 statements into wp_shop. Replaced shop.se with shop.test.")
 }
+
+@Test func queryRecording() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let c = Corral(home: tmp + "/it's home") // a quote in the path must not break the PHP string
+    #expect(!c.fpmConf("8.4").contains("auto_prepend_file"))
+    c.config.queries = true
+    #expect(c.fpmConf("8.4").contains("php_value[auto_prepend_file] = \"\(c.queriesScript)\""))
+    #expect(c.queriesPHP.contains("$log = '\(tmp)/it\\'s home/logs/queries.jsonl';"))
+
+    let log = """
+    {"time":1,"method":"GET","url":"shop.test/","status":200,"queries":[{"sql":"select * from users where id = ? and name = ?","bindings":["7","O'Brien"],"ms":1.5,"caller":"/app/Http/Home.php:12"}]}
+    {"time":2,"method":"GET","url":"shop.test/list","queries":[{"sql":"select 1","ms":0.5},{"sql":"select 1","ms":0.5},{"sql":"select 2","ms":1}]}
+    {"time":3,"meth
+    """
+    let requests = Corral.queryRequests(log)
+    #expect(requests.map(\.url) == ["shop.test/list", "shop.test/"]) // newest first, the half-written line is skipped
+    #expect(requests[0].repeated == 1 && requests[0].totalMs == 2)
+    #expect(requests[1].queries[0].filled == "select * from users where id = 7 and name = 'O''Brien'")
+}

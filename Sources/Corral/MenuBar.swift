@@ -35,6 +35,7 @@ struct Snapshot: Sendable {
     var missing: [String] = []             // TLDs that do not resolve to Corral yet
     var herdFound = false
     var dumps = false
+    var queries = false
     var mail = false
     var xdebug = XdebugSettings()
     var xdebugBuilds: [String] = []        // PHP versions in use whose build has Xdebug
@@ -62,6 +63,7 @@ struct Snapshot: Sendable {
         tld = c.config.tld
         herdFound = Corral.herdFound
         dumps = c.config.dumps
+        queries = c.config.queries
         mail = c.config.mail
         xdebug = c.config.xdebug
         xdebugBuilds = c.neededPHP(php).filter { php[$0].flatMap(c.xdebugPath) != nil }

@@ -12,6 +12,7 @@ struct Config: Codable, Equatable {
     var proxies: [String: String] = [:]  // site name -> upstream URL
     var fpm: [String: FpmPool] = [:]     // PHP version -> pool settings, when not the defaults
     var dumps = false                    // send dump() and dd() output to the Insights window
+    var queries = false                  // record the SQL queries of each request for the Insights window
     var mail = false                     // catch mail on 127.0.0.1:2525 while the app runs
     var xdebug = XdebugSettings()        // second PHP-FPM pool with Xdebug, for requests that ask for a debug session
 
@@ -32,6 +33,7 @@ struct Config: Codable, Equatable {
         proxies = try c.decodeIfPresent([String: String].self, forKey: .proxies) ?? d.proxies
         fpm = try c.decodeIfPresent([String: FpmPool].self, forKey: .fpm) ?? d.fpm
         dumps = try c.decodeIfPresent(Bool.self, forKey: .dumps) ?? d.dumps
+        queries = try c.decodeIfPresent(Bool.self, forKey: .queries) ?? d.queries
         mail = try c.decodeIfPresent(Bool.self, forKey: .mail) ?? d.mail
         xdebug = try c.decodeIfPresent(XdebugSettings.self, forKey: .xdebug) ?? d.xdebug
     }
@@ -677,7 +679,9 @@ final class Corral: @unchecked Sendable {
     /// because a debug session waits at a breakpoint.
     func fpmConf(_ version: String, sites: [Site] = [], debug: Bool = false) -> String {
         let values = { (extra: [String: String]) in
-            (self.phpOverrides() + extra.sorted { $0.key < $1.key }).map { "php_value[\($0.0)] = \"\($0.1)\"\n" }.joined()
+            // The queries file comes before the site values, so a site can still set its own auto_prepend_file.
+            let queries = self.config.queries ? [("auto_prepend_file", self.queriesScript)] : []
+            return (self.phpOverrides() + queries + extra.sorted { $0.key < $1.key }).map { "php_value[\($0.0)] = \"\($0.1)\"\n" }.joined()
         }
         let pool = config.fpm[version] ?? FpmPool()
         let pm = switch debug ? "ondemand" : pool.pm {
@@ -728,6 +732,7 @@ final class Corral: @unchecked Sendable {
             throw CorralError("Invalid \(bad.path)/.corral.json: \(bad.overridesError!)")
         }
         try nginxConf(sites: sites, installed: installed).write(toFile: conf + "/nginx.conf", atomically: true, encoding: .utf8)
+        try queriesPHP.write(toFile: queriesScript, atomically: true, encoding: .utf8)
         var changed = Set<String>()
         for v in installed.keys {
             let file = "\(conf)/php\(v)-fpm.conf", text = fpmConf(v, sites: sites.filter { php(for: $0, installed) == v })
