@@ -709,3 +709,18 @@ import Testing
     #expect(try CLI.serveNewProject(c, name: "blog", dir: other) == "blog.test") // not parked: linked
     #expect(c.config.links["blog"] == other + "/blog" && c.config.secured.contains("blog"))
 }
+
+@Test func mailListAndLinks() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    for (name, subject) in [("100-a.eml", "Old"), ("200-b.eml", "New")] {
+        try "X-Corral-Inbox: shop\r\nSubject: \(subject)\r\n\r\nHi".write(to: tmp.appendingPathComponent(name), atomically: true, encoding: .utf8)
+    }
+    #expect(MailMessage.all(in: tmp).map(\.subject) == ["New", "Old"]) // newest first
+    #expect(MailMessage.all(in: tmp)[0].inbox == "shop")
+
+    // Quoted-printable: a wrapped link and =3D in the query come back whole. Repeats appear once.
+    let raw = "Content-Transfer-Encoding: quoted-printable\r\n\r\n<a href=3D\"https://shop.test/verify?id=3D7&amp;sig=3Dab=\r\ncd\">Verify</a> https://shop.test/verify?id=3D7&amp;sig=3Dabcd http://x.test/a."
+    #expect(MailMessage.links(raw) == ["https://shop.test/verify?id=7&sig=abcd", "http://x.test/a"]) // &amp; decoded, end-of-sentence dot dropped
+}

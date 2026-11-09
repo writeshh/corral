@@ -93,6 +93,10 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral wp:setup [name]` | Set up WordPress in the current folder. See [WordPress setup](#wordpress-setup). |
 | `corral new <name> [options]` | Create a Laravel project in the parked folder and serve it over HTTPS. See [New Laravel projects](#new-laravel-projects). |
 | `corral laravel:setup [name] [--seed]` | Set up a cloned Laravel project in the current folder. See [Laravel setup](#laravel-setup). |
+| `corral mail [inbox]` | List the mail that Corral caught, newest first. See [Insights](#insights). |
+| `corral mail:show [n]` | Print message `n` (1 is the newest) as a raw `.eml` file. |
+| `corral mail:links [n]` | Print the links in message `n`, for example a link to verify an email address. |
+| `corral mail:clear` | Delete all caught mail. |
 | `corral tools` | Show the versions of `composer`, `wp`, and `laravel`. See [Bundled tools](#bundled-tools). |
 | `corral tools:update [name]` | Update `composer`, `wp`, or `laravel` (all by default). |
 | `corral open [site]` | Open a site in the browser. |
@@ -204,7 +208,7 @@ Insights shows information from your sites. All of it stays on your Mac.
 
 - **Dumps**: turn on "Send dump() to Corral". Then `dump()` and `dd()` in Laravel and Symfony sites show in Insights, not in the page. Corral uses the server mode of Symfony VarDumper on port 9912. Insights keeps the newest 1000 dumps.
 - **Logs**: the Laravel logs in `storage/logs`, the WordPress `wp-content/debug.log`, and the nginx and PHP-FPM logs. Insights reads the file again every 2 seconds.
-- **Mail**: turn on "Catch mail on 127.0.0.1:2525". Corral receives each message that a site sends with SMTP to this address, and keeps the newest 1000. Click a message to preview it. For a Laravel site, click "Send Mail to Corral" in the site menu. Corral then changes the `MAIL_` values in `.env`, and keeps the original file as `.env.corral.bak`.
+- **Mail**: turn on "Catch mail on 127.0.0.1:2525". Corral receives each message that a site sends with SMTP to this address, and keeps the newest 1000. Click a message to preview it. For a Laravel site, click "Send Mail to Corral" in the site menu. Corral then changes the `MAIL_` values in `.env`, and keeps the original file as `.env.corral.bak`. In a terminal, `corral mail` lists the messages, and `corral mail:links` prints the links of the newest one.
 
 Insights does not show database queries.
 

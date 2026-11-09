@@ -39,6 +39,9 @@ enum CLI {
       new <name> [options]         create a Laravel project with `laravel new` in the parked folder (the current
                                    folder if it is parked), then serve it at https://<name>.<tld>. Options go to
                                    the installer. Corral adds --no-boost unless you pass --boost.
+      mail [inbox]                 list caught mail, newest first (the menu bar app catches it on 127.0.0.1:2525)
+      mail:show [n] | mail:links [n]   print message n (1 = newest) as raw .eml, or only its links
+      mail:clear                   delete all caught mail
       tools                        versions of composer, wp, and laravel
       tools:update [name]          update composer, wp, or laravel (all by default). laravel:update is the same for laravel.
       open [site]
@@ -232,6 +235,21 @@ enum CLI {
                 let host = try serveNewProject(corral, name: name, dir: dir)
                 print("https://\(host)")
                 NSWorkspace.shared.open(URL(string: "https://\(host)")!)
+            case "mail":
+                let list = MailMessage.all(in: URL(fileURLWithPath: corral.mailDir)).filter { arg1 == nil || $0.inbox == arg1 }
+                if list.isEmpty { print(corral.config.mail ? "No mail." : "No mail. Turn on mail in Insights > Mail in the menu bar app.") }
+                for (i, m) in list.enumerated() {
+                    print("\(i + 1)\t\(m.date.formatted(date: .numeric, time: .shortened))\t\(m.inbox.isEmpty ? "-" : m.inbox)\t\(m.from)\t\(m.subject)")
+                }
+            case "mail:show", "mail:links":
+                let list = MailMessage.all(in: URL(fileURLWithPath: corral.mailDir))
+                guard let n = Int(arg1 ?? "1"), list.indices.contains(n - 1) else { throw CorralError("No message \(arg1 ?? "1"). Run corral mail to see the list.") }
+                let raw = String(decoding: try Data(contentsOf: list[n - 1].url), as: UTF8.self)
+                if args[0] == "mail:show" { print(raw) } else { MailMessage.links(raw).forEach { print($0) } }
+            case "mail:clear":
+                let list = MailMessage.all(in: URL(fileURLWithPath: corral.mailDir))
+                for m in list { try FileManager.default.removeItem(at: m.url) }
+                print("Deleted \(list.count) messages.")
             case "laravel:setup":
                 putBinFirst(corral)
                 let (name, host) = try linkAndSecure(corral, args.dropFirst().first { !$0.hasPrefix("--") }, cwd)

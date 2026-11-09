@@ -57,6 +57,31 @@ struct MailMessage: Identifiable, Sendable {
     }
 }
 
+extension Corral {
+    var mailDir: String { home + "/mail" }
+}
+
+extension MailMessage {
+    /// The caught messages in dir, newest first. File names start with the time in milliseconds.
+    static func all(in dir: URL) -> [MailMessage] {
+        ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "eml" }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+            .map(MailMessage.init)
+    }
+
+    /// The links in a raw message, in order, without repeats. Quoted-printable is undone first,
+    /// so a long link that the mailer wrapped with "=" at the line end still matches.
+    static func links(_ raw: String) -> [String] {
+        var text = raw.replacingOccurrences(of: "=\r\n", with: "").replacingOccurrences(of: "=\n", with: "")
+        text = text.replacing(/=([0-9A-F]{2})/) { m in UInt8(m.1, radix: 16).map { String(UnicodeScalar($0)) } ?? String(m.0) }
+        // HTML parts write & as &amp;. A sentence can end right after a link.
+        return text.matches(of: /https?:\/\/[^\s"'<>()]+/)
+            .map { String($0.0).replacingOccurrences(of: "&amp;", with: "&").trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?")) }
+            .reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+    }
+}
+
 /// A minimal SMTP server on 127.0.0.1:2525, Herd's mail port. It accepts every message and every login.
 /// ponytail: no STARTTLS and no size limit. Local apps only; add Mailpit if people need its API or search.
 @MainActor
@@ -71,7 +96,7 @@ final class MailServer: ObservableObject {
 
     init() {
         let corral = Corral()
-        dir = URL(fileURLWithPath: corral.home + "/mail")
+        dir = URL(fileURLWithPath: corral.mailDir)
         reload()
         if corral.config.mail { start() }
     }
@@ -117,11 +142,9 @@ final class MailServer: ObservableObject {
 
     /// Newest first. Deletes the oldest files above the limit.
     func reload() {
-        let files = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
-            .filter { $0.pathExtension == "eml" }
-            .sorted { $0.lastPathComponent > $1.lastPathComponent } // names start with the time in milliseconds
-        for old in files.dropFirst(Self.limit) { try? FileManager.default.removeItem(at: old) }
-        messages = files.prefix(Self.limit).map(MailMessage.init)
+        let all = MailMessage.all(in: dir)
+        for old in all.dropFirst(Self.limit) { try? FileManager.default.removeItem(at: old.url) }
+        messages = Array(all.prefix(Self.limit))
     }
 
     func delete(_ message: MailMessage) {
