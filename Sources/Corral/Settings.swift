@@ -536,7 +536,6 @@ struct AboutTab: View {
                         }
                     }
                 }
-                LabeledContent("Telemetry", value: "None")
             } footer: {
                 Text("Corral looks for a new version at launch and once a day. With automatic updates on, it installs the new version and restarts. Your sites keep running.")
                     .foregroundStyle(.secondary)

@@ -19,6 +19,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - "Check for Updates" in Settings > About shows its result next to the button: checking, up to date, or the new version with an "Update and Restart" button. A manual check no longer installs by itself. Before, the result showed only in the menu bar panel.
 - After an automatic update, the panel says which version Corral updated to.
+- Settings > About no longer shows the "Telemetry" row. Corral still sends no telemetry.
 
 ### Fixed
 
