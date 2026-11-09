@@ -22,6 +22,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - After an automatic update, the panel says which version Corral updated to.
 - Settings > About no longer shows the "Telemetry" row. Corral still sends no telemetry.
 
+- `corral wp:setup`, `corral laravel:setup`, and the panel's setup actions create the database with Corral's PHP (`mysqli`). They no longer need the `mysql` client.
+
 ### Fixed
 
 - The Insights window shows errors from its dumps and mail switches. Before, they showed only in the menu bar panel.

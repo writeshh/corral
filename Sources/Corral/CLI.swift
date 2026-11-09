@@ -33,9 +33,9 @@ enum CLI {
                                    debug pool: a second php-fpm with Xdebug. A request goes to it only
                                    with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument.
       wp:setup [name]              set up WordPress in the current folder: database, core, config, HTTPS,
-                                   debug settings. Uses Corral's wp. Needs `mysql` in PATH.
+                                   debug settings. Uses Corral's wp and php.
       laravel:setup [name] [--seed]  set up a cloned Laravel project: composer, .env, key, database,
-                                   migrations, npm build, HTTPS. Uses Corral's composer. Needs `mysql` in PATH.
+                                   migrations, npm build, HTTPS. Uses Corral's composer and php.
       new <name> [options]         create a Laravel project with `laravel new` in the parked folder (the current
                                    folder if it is parked), then serve it at https://<name>.<tld>. Options go to
                                    the installer. Corral adds --no-boost unless you pass --boost.
@@ -283,12 +283,12 @@ enum CLI {
         prefix + String(name.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "_" })
     }
 
-    /// The commands of `corral wp:setup`, in order. Each one runs through `env`, so `wp` and `mysql` come from PATH.
+    /// The commands of `corral wp:setup`, in order. Each one runs through `env`, so `wp` and `php` come from PATH.
     /// Core and config are skipped when the folder already has them, so a rerun never overwrites a wp-config.php.
     static func wpSetupSteps(name: String, host: String, dir: String) -> [[String]] {
         let db = dbName("wp_", name)
         let has = { FileManager.default.fileExists(atPath: dir + "/" + $0) }
-        var steps = [["mysql", "-u", "root", "-e", "CREATE DATABASE IF NOT EXISTS `\(db)`"]]
+        var steps = [createDatabase(db)]
         if !has("wp-load.php") { steps.append(["wp", "core", "download", "--skip-content"]) }
         if !has("wp-config.php") {
             steps.append(["wp", "config", "create", "--dbname=\(db)", "--dbuser=root", "--dbpass=", "--dbhost=127.0.0.1", "--dbprefix=wp_", "--locale=en_US"])
@@ -300,6 +300,15 @@ enum CLI {
         }
         steps.append(["wp", "config", "set", "ENVIRONMENT", "DEV"])
         return steps
+    }
+
+    /// Creates a MySQL database with Corral's PHP (mysqli), so no `mysql` client is needed. It uses the same server
+    /// as the configs that the setup writes: 127.0.0.1, user root, no password. db holds only letters, digits and _.
+    static func createDatabase(_ db: String) -> [String] {
+        ["php", "-r", """
+        try { (new mysqli('127.0.0.1', 'root', ''))->query('CREATE DATABASE IF NOT EXISTS `\(db)`'); }
+        catch (Throwable $e) { fwrite(STDERR, 'MySQL on 127.0.0.1 (user root): ' . $e->getMessage() . PHP_EOL); exit(1); }
+        """]
     }
 
     /// The .env of a fresh clone: .env.example with the URL and a local MySQL database. Commented DB_ lines count.
@@ -329,7 +338,7 @@ enum CLI {
             let db = dbName("", name)
             try laravelEnv(example, host: host, db: db).write(toFile: dir + "/.env", atomically: true, encoding: .utf8)
             try runLive(["php", "artisan", "key:generate"])
-            try runLive(["mysql", "-u", "root", "-e", "CREATE DATABASE IF NOT EXISTS `\(db)`"])
+            try runLive(createDatabase(db))
             try runLive(["php", "artisan", "migrate"] + (seed ? ["--seed"] : []))
         }
         if has("package.json") {

@@ -615,7 +615,8 @@ import Testing
     try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
 
     let fresh = CLI.wpSetupSteps(name: "crm.pigment", host: "crm.pigment.test", dir: tmp)
-    #expect(fresh[0].last == "CREATE DATABASE IF NOT EXISTS `wp_crm_pigment`")
+    #expect(fresh[0] == CLI.createDatabase("wp_crm_pigment") && fresh[0][0] == "php") // mysqli: no mysql client needed
+    #expect(fresh[0].last!.contains("CREATE DATABASE IF NOT EXISTS `wp_crm_pigment`"))
     #expect(fresh.contains(["wp", "core", "download", "--skip-content"]))
     #expect(fresh.contains { $0.starts(with: ["wp", "config", "create", "--dbname=wp_crm_pigment"]) })
     #expect(fresh.contains { $0.contains("--url=https://crm.pigment.test") })

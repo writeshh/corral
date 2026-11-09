@@ -238,10 +238,10 @@ The `wp` command hides PHP deprecation notices, because WP-CLI 2.12 prints some 
 ### WordPress setup
 
 Run `corral wp:setup [name]` in a folder that holds a WordPress project, for example a clone that tracks only `wp-content`.
-The name defaults to the folder name. The command uses Corral's own `wp` (WP-CLI), and needs `mysql` in `PATH`.
+The name defaults to the folder name. The command uses Corral's own `wp` (WP-CLI) and `php`. It does not need the `mysql` client.
 
 1. Serve the folder as `<name>.test` over HTTPS.
-2. Create the database `wp_<name>` on the local MySQL server. The user is `root`, with no password.
+2. Create the database `wp_<name>` on the MySQL server at `127.0.0.1`, with Corral's PHP (`mysqli`). The user is `root`, with no password.
 3. Download WordPress core with `wp core download --skip-content`. Corral skips this step when `wp-load.php` exists.
 4. Create `wp-config.php`. Corral skips this step when the file exists.
 5. Install WordPress with the user `admin` and the password `admin`.
@@ -251,12 +251,12 @@ The name defaults to the folder name. The command uses Corral's own `wp` (WP-CLI
 Use this command for local development only. The admin password is not secret.
 
 The panel runs the same steps. Open the site's "..." menu and choose "Set Up WordPress…". The entry shows only for a site that has `wp-content` or `wp-load.php` but no `wp-config.php`.
-The panel finds `mysql` in `/opt/homebrew/bin` and `/usr/local/bin`, because a menu bar app has a short `PATH`. If a step fails, the panel shows the end of its output.
+If a step fails, the panel shows the end of its output.
 
 ### Laravel setup
 
 Run `corral laravel:setup [name]` in a fresh clone of a Laravel project.
-The name defaults to the folder name. The command uses Corral's own `composer` and `php`, and needs `mysql` in `PATH` for the database.
+The name defaults to the folder name. The command uses Corral's own `composer` and `php`. It creates the database with `mysqli`, so it does not need the `mysql` client.
 
 1. Serve the folder as `<name>.test` over HTTPS.
 2. Run `composer install` when the `vendor` folder is missing.
