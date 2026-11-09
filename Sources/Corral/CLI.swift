@@ -32,7 +32,7 @@ enum CLI {
       php:list                     installed PHP versions (Corral builds only)
       php:install <ver>            download a static PHP build, for example 8.4
       php:uninstall <ver>          remove a PHP version that Corral installed
-      xdebug [on|off] [--mode m] [--host h] [--port n] [--start yes|trigger] [--profile on|off]
+      xdebug [on|off] [--mode m] [--host h] [--port n] [--start yes|trigger] [--profile on|off] [--detect on|off]
                                    debug pool: a second php-fpm with Xdebug. A request goes to it only
                                    with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument.
       profile <url>                request a URL with an XDEBUG_PROFILE cookie and print the cachegrind file it wrote
@@ -236,15 +236,21 @@ enum CLI {
                     case "--host": x.clientHost = value
                     case "--port": x.clientPort = Int(value) ?? 0
                     case "--start": x.startWithRequest = value
+                    case "--detect":
+                        guard value == "on" || value == "off" else { throw CorralError("Use --detect on or --detect off.") }
+                        x.detectEditor = value == "on"
                     case "--profile":
                         guard value == "on" || value == "off" else { throw CorralError("Use --profile on or --profile off.") }
                         x.profile = value == "on"
-                    default: throw CorralError("Unknown option \(rest[pair]). Use --mode, --host, --port, --start or --profile.")
+                    default: throw CorralError("Unknown option \(rest[pair]). Use --mode, --host, --port, --start, --profile or --detect.")
                     }
                 }
                 if x != corral.config.xdebug { try corral.saveXdebug(x) }
                 let versions = corral.debugVersions(corral.phpVersions())
-                print("Xdebug \(x.enabled ? "on" : "off"): mode \(x.mode), client \(x.clientHost):\(x.clientPort), start with request \(x.startWithRequest), profiler \(x.profile ? "on" : "off")")
+                print("Xdebug \(x.enabled ? "on" : "off"): mode \(x.mode), client \(x.clientHost):\(x.clientPort), start with request \(x.startWithRequest), profiler \(x.profile ? "on" : "off"), editor detection \(x.detectEditor ? "on" : "off")")
+                if x.enabled && x.detectEditor {
+                    print(corral.editorListens ? "An editor listens on port \(x.clientPort): the menu bar app sends every request to the debug pool." : "No editor listens on port \(x.clientPort) now.")
+                }
                 if x.enabled { print("Debug pool for PHP \(versions.joined(separator: ", ")).") }
             case "queries":
                 if let word = arg1 {

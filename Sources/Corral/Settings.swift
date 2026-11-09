@@ -297,17 +297,18 @@ final class XdebugDraft: ObservableObject {
     @Published var port = ""
     @Published var start = "yes"
     @Published var profile = false
+    @Published var detect = true
     private var loaded = false
 
     func load(_ x: XdebugSettings) {
-        (enabled, mode, host, port, start, profile) = (x.enabled, x.mode, x.clientHost, String(x.clientPort), x.startWithRequest, x.profile)
+        (enabled, mode, host, port, start, profile, detect) = (x.enabled, x.mode, x.clientHost, String(x.clientPort), x.startWithRequest, x.profile, x.detectEditor)
         loaded = true
     }
 
     func settings() -> XdebugSettings? {
         guard let port = Int(port) else { return nil }
         var x = XdebugSettings()
-        (x.enabled, x.mode, x.clientHost, x.clientPort, x.startWithRequest, x.profile) = (enabled, mode, host, port, start, profile)
+        (x.enabled, x.mode, x.clientHost, x.clientPort, x.startWithRequest, x.profile, x.detectEditor) = (enabled, mode, host, port, start, profile, detect)
         return x
     }
 
@@ -330,6 +331,8 @@ struct XdebugSection: View {
             }
             .disabled(draft.profile)
             Toggle("Profiler (XDEBUG_PROFILE)", isOn: $draft.profile).disabled(!draft.enabled)
+            Toggle("Use the pool while the editor listens", isOn: $draft.detect).disabled(!draft.enabled)
+                .help("While a program listens on the client port on this Mac, every PHP request runs with Xdebug, without a cookie.")
             LabeledContent("") {
                 HStack {
                     Button("Revert") { draft.load(model.snap.xdebug) }

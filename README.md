@@ -172,13 +172,18 @@ nginx sends a request to the debug pool when it has one of these:
 - an `XDEBUG_SESSION`, `XDEBUG_SESSION_START`, or `XDEBUG_TRIGGER` query argument
 
 A browser extension for Xdebug sets the cookie. Other requests use the normal pool.
+
+You do not need the cookie while your editor listens for Xdebug.
+The menu bar app checks every 2 seconds whether a program listens on the client port (9003) on this Mac, for example PhpStorm after "Start Listening for PHP Debug Connections", or a VS Code debug session.
+While one listens, every PHP request goes to the debug pool, and the panel says so. When the editor stops listening, requests use the normal pool again.
+Turn this off in Settings > PHP > Xdebug, or with `corral xdebug --detect off`. Corral does not detect an editor on another computer (a client host other than `127.0.0.1`).
 The debug pool reads the same `php.ini` as the normal pool.
 It starts processes on demand, and it has no request time limit, because a session waits at a breakpoint.
 
 Xdebug connects to your editor at `127.0.0.1` on port 9003. Start listening for debug connections in the editor.
 Settings > PHP > Xdebug changes the mode (`debug,develop` by default), the client host, the client port,
 and whether every request in the pool starts a session or only requests with `XDEBUG_TRIGGER`.
-`corral xdebug` has the options `--mode`, `--host`, `--port`, `--start`, and `--profile`.
+`corral xdebug` has the options `--mode`, `--host`, `--port`, `--start`, `--profile`, and `--detect`.
 Corral restarts the debug pool after a change.
 The panel shows the debug pool as `php 8.4 debug`, and Corral restarts it if it stops.
 

@@ -108,6 +108,7 @@ final class Model: ObservableObject {
     var running: Bool { snap.services.first?.up ?? false }
 
     private var watchdog: Timer?
+    private var editorTimer: Timer?
     private var updateTimer: Timer?
 
     init(corral: Corral = Corral()) {
@@ -123,6 +124,10 @@ final class Model: ObservableObject {
             notice = "Corral updated to \(version)."
         }
         UserDefaults.standard.set(Corral.appVersion, forKey: "lastVersion")
+        // Short, so "start listening" in the editor works for the next page load. lsof costs a few ms.
+        editorTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.detectEditor() }
+        }
         checkForUpdate()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 86400, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.checkForUpdate() }
@@ -145,6 +150,19 @@ final class Model: ObservableObject {
                 self.snap = snap
                 if let message { if self.error != message { self.error = message } }
                 else { self.notice = "Restarted \(down.joined(separator: ", ")) at \(Date.now.formatted(date: .omitted, time: .shortened))." }
+            }
+        }
+    }
+
+    /// While an editor listens on the Xdebug client port, every PHP request goes to the debug pool. Says so when it changes.
+    private func detectEditor() {
+        let corral = corral
+        queue.async {
+            guard corral.updateEditorFlag() else { return }
+            let on = FileManager.default.fileExists(atPath: corral.editorFlag), port = corral.config.xdebug.clientPort
+            Task { @MainActor in
+                self.notice = on ? "Your editor listens on port \(port). Every PHP request now runs with Xdebug."
+                    : "Your editor stopped listening. Requests run without Xdebug again."
             }
         }
     }

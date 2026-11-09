@@ -513,6 +513,10 @@ import Testing
     let nginx = c.nginxConf(sites: sites, installed: installed)
     #expect(nginx.contains("$cookie_XDEBUG_SESSION$cookie_XDEBUG_TRIGGER$arg_XDEBUG_SESSION$arg_XDEBUG_SESSION_START$arg_XDEBUG_TRIGGER"))
     #expect(!nginx.contains("XDEBUG_PROFILE")) // only with the profiler on
+    #expect(nginx.contains("if (-f \"\(c.editorFlag)\") { set $php_sock \"\(c.run)/php8.4-debug.sock\"; }")) // editor detection is on by default
+    c.config.xdebug.detectEditor = false
+    #expect(!c.nginxConf(sites: sites, installed: installed).contains("editor-listening"))
+    c.config.xdebug.detectEditor = true
     c.config.xdebug.profile = true
     #expect(c.nginxConf(sites: c.sites(), installed: installed).contains("$arg_XDEBUG_TRIGGER$cookie_XDEBUG_PROFILE$arg_XDEBUG_PROFILE\""))
     c.config.xdebug.profile = false
@@ -880,4 +884,30 @@ import Testing
     #expect(plan.removesResolver)
     let withCA = Corral.herdUninstallScript(plan, removeCA: true)
     #expect(withCA.contains("rm -f /etc/resolver/test") && withCA.contains("delete-certificate -c \"Laravel Valet CA Self Signed CN\""))
+}
+
+@Test func editorDetection() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let c = Corral(home: tmp)
+    try c.mkdirs(c.run)
+
+    // A listener on a free port stands in for the editor.
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    var addr = sockaddr_in()
+    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size); addr.sin_family = sa_family_t(AF_INET); addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+    var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+    _ = withUnsafeMutablePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, len) + getsockname(fd, $0, &len) } }
+    #expect(listen(fd, 1) == 0)
+    c.config.xdebug.clientPort = Int(UInt16(bigEndian: addr.sin_port))
+
+    #expect(!c.updateEditorFlag()) // the pool is off: no flag
+    c.config.xdebug.enabled = true
+    #expect(c.editorListens && c.updateEditorFlag() && FileManager.default.fileExists(atPath: c.editorFlag))
+    #expect(!c.updateEditorFlag()) // no change
+    c.config.xdebug.clientHost = "192.168.1.5" // a remote editor is never detected
+    #expect(c.updateEditorFlag() && !FileManager.default.fileExists(atPath: c.editorFlag))
+    c.config.xdebug.clientHost = "127.0.0.1"
+    close(fd)
+    #expect(!c.editorListens && !c.updateEditorFlag())
 }

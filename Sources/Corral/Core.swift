@@ -50,6 +50,7 @@ struct XdebugSettings: Codable, Equatable, Sendable {
     var clientPort = 9003
     var startWithRequest = "yes"          // yes: every request in the debug pool starts a session. trigger: only with XDEBUG_TRIGGER.
     var profile = false                   // the profiler: XDEBUG_PROFILE writes a cachegrind file to <home>/profiles
+    var detectEditor = true               // while an editor listens on the client port, every request uses the debug pool
 
     init() {}
 
@@ -62,6 +63,7 @@ struct XdebugSettings: Codable, Equatable, Sendable {
         clientPort = try c.decodeIfPresent(Int.self, forKey: .clientPort) ?? d.clientPort
         startWithRequest = try c.decodeIfPresent(String.self, forKey: .startWithRequest) ?? d.startWithRequest
         profile = try c.decodeIfPresent(Bool.self, forKey: .profile) ?? d.profile
+        detectEditor = try c.decodeIfPresent(Bool.self, forKey: .detectEditor) ?? d.detectEditor
     }
 
     static let modes: Set<String> = ["off", "develop", "coverage", "debug", "gcstats", "profile", "trace"]
@@ -455,6 +457,26 @@ final class Corral: @unchecked Sendable {
         return iniArgs(fpm) + options.flatMap { ["-d", $0] }
     }
 
+    /// Exists while an editor listens for Xdebug. Then nginx sends every PHP request to the debug pool.
+    var editorFlag: String { run + "/editor-listening" }
+
+    /// True when a process listens on the Xdebug client port on this Mac. A remote client host is never detected.
+    var editorListens: Bool {
+        let x = config.xdebug
+        guard ["127.0.0.1", "localhost", "::1"].contains(x.clientHost) else { return false }
+        return (try? Self.sh("/usr/sbin/lsof", ["-nP", "-iTCP:\(x.clientPort)", "-sTCP:LISTEN", "-t"])) != nil // exit 1: nothing listens
+    }
+
+    /// Creates or removes the flag. Returns true when it changed.
+    @discardableResult
+    func updateEditorFlag() -> Bool {
+        let on = config.xdebug.enabled && config.xdebug.detectEditor && editorListens
+        let fm = FileManager.default
+        guard on != fm.fileExists(atPath: editorFlag) else { return false }
+        if on { fm.createFile(atPath: editorFlag, contents: nil) } else { try? fm.removeItem(atPath: editorFlag) }
+        return true
+    }
+
     func debugPid(_ version: String) -> String { "\(run)/php\(version)-debug-fpm.pid" }
 
     /// Saves the debug pool settings after php-fpm accepts them, then restarts the debug pools.
@@ -661,7 +683,11 @@ final class Corral: @unchecked Sendable {
         // `set` inside `if` is the safe use of `if` in nginx. fastcgi_pass reads the variable for each request.
         let indent = "\n                    "
         let pass = debugSock.map {
-            ["set $php_sock \"\(sock)\";", "if ($corral_debug) { set $php_sock \"\($0)\"; }", "fastcgi_pass \"unix:$php_sock\";"].joined(separator: indent)
+            ["set $php_sock \"\(sock)\";", "if ($corral_debug) { set $php_sock \"\($0)\"; }"]
+                // The app creates the file while an editor listens. nginx checks it for each request, so a change needs no reload.
+                + (config.xdebug.detectEditor ? ["if (-f \"\(editorFlag)\") { set $php_sock \"\($0)\"; }"] : [])
+                + ["fastcgi_pass \"unix:$php_sock\";"]
+            }.map { $0.joined(separator: indent)
         } ?? "fastcgi_pass \"unix:\(sock)\";"
         return """
                 root "\(site.docroot)";
@@ -932,6 +958,7 @@ final class Corral: @unchecked Sendable {
     func start() throws {
         try writeConfigs()
         cleanProfiles()
+        updateEditorFlag()
         try renewCertificates()
         let installed = phpVersions()
         if installed.isEmpty { throw CorralError("No PHP found. Install it with: corral php:install \(Self.phpChoices[0])") }
