@@ -197,13 +197,14 @@ final class MailServer: ObservableObject {
         messages = Array(all.prefix(Self.limit))
     }
 
+    /// To the Trash, not deleted, so a message that a test still needs can come back.
     func delete(_ message: MailMessage) {
-        try? FileManager.default.removeItem(at: message.url)
+        try? FileManager.default.trashItem(at: message.url, resultingItemURL: nil)
         reload()
     }
 
     func clear() {
-        for m in messages { try? FileManager.default.removeItem(at: m.url) }
+        for m in messages { try? FileManager.default.trashItem(at: m.url, resultingItemURL: nil) }
         reload()
     }
 }
@@ -306,7 +307,7 @@ struct MailView: View {
                 Toggle("Catch mail on 127.0.0.1:\(String(MailServer.port))", isOn: Binding(get: { model.snap.mail }, set: setMail)) // String: no "2,525"
                 Spacer()
                 Text("\(mail.messages.count) of \(MailServer.limit)").font(.caption).foregroundStyle(.secondary)
-                Button("Clear", action: mail.clear).disabled(mail.messages.isEmpty)
+                Button("Move All to Trash", action: mail.clear).disabled(mail.messages.isEmpty)
             }
             .padding(10)
             if let error = mail.error {
@@ -337,7 +338,7 @@ struct MailView: View {
                         Button("Open in Mail") { NSWorkspace.shared.open(m.url) }
                         Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([m.url]) }
                         Divider()
-                        Button("Delete") { mail.delete(m) }
+                        Button("Move to Trash") { mail.delete(m) }
                     }
                 }
             }

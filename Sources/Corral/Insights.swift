@@ -193,7 +193,7 @@ struct DumpsView: View {
                     .help("Sites send dump() and dd() output here, not into the page. Uses Symfony VarDumper's server mode on port \(String(Corral.dumpPort)).")
                 Spacer()
                 Text("\(insights.dumps.count) of \(Insights.limit)").font(.caption).foregroundStyle(.secondary)
-                Button("Clear", action: insights.clear).disabled(insights.dumps.isEmpty)
+                Button("Clear", action: insights.clear).disabled(insights.dumps.isEmpty).help("Remove the dumps from this list.")
             }
             .padding(10)
             if let error = insights.error {

@@ -151,6 +151,31 @@ struct PHPTab: View {
     @StateObject private var settings = PHPSettings()
     @StateObject private var xdebug = XdebugDraft()
 
+    /// Removing a version breaks the sites that use it, and only a new download brings it back, so ask first.
+    /// The alert names those sites, so the answer is an informed one.
+    private func confirmRemove(_ version: String) -> Bool {
+        let users = model.snap.rows.filter { $0.php == version }.map(\.host)
+        let alert = NSAlert()
+        alert.alertStyle = users.isEmpty ? .informational : .warning
+        alert.messageText = "Remove PHP \(version)?"
+        // Sites fall back to the global version. Without it, the global version becomes the newest one left.
+        let fallback = model.snap.globalPHP == version ? model.snap.versions.last { $0 != version } : model.snap.globalPHP
+        var lines: [String] = []
+        if model.snap.globalPHP == version, let fallback { lines.append("It is the global PHP version. PHP \(fallback) becomes the global version.") }
+        if users.isEmpty {
+            lines.append("No site uses it.")
+        } else {
+            let shown = users.prefix(8).joined(separator: ", ") + (users.count > 8 ? ", and \(users.count - 8) more" : "")
+            let effect = fallback.map { "switch to PHP \($0)" } ?? "stop working, because no other PHP version is installed"
+            lines.append("\(users.count == 1 ? "This site uses it and will" : "These \(users.count) sites use it and will") \(effect): \(shown).")
+        }
+        lines.append("Its php.ini goes too. You can install the version again later.")
+        alert.informativeText = lines.joined(separator: "\n\n")
+        alert.addButton(withTitle: "Remove").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     var body: some View {
         Form {
             Section("Installed") {
@@ -170,7 +195,7 @@ struct PHPTab: View {
                                 // The same version, built before Xdebug was in the builds. Installing again adds xdebug.so.
                                 Button("Get Xdebug") { model.run("Installing PHP \(v) again with Xdebug") { try $0.installPHP(v) } }
                             }
-                            Button("Remove") { model.run("Removing PHP \(v)") { try $0.uninstallPHP(v) } }
+                            Button("Remove…") { if confirmRemove(v) { model.run("Removing PHP \(v)") { try $0.uninstallPHP(v) } } }
                         }
                         .disabled(model.busy != nil)
                     } label: {

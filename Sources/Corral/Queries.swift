@@ -225,7 +225,7 @@ struct QueriesView: View {
                     .help("Laravel and WordPress sites record their SQL queries and outgoing HTTP calls. Laravel sites also record cache and queue events.")
                 Spacer()
                 Text("\(log.requests.count) requests").font(.caption).foregroundStyle(.secondary)
-                Button("Clear", action: log.clear).disabled(log.requests.isEmpty)
+                Button("Clear", action: log.clear).disabled(log.requests.isEmpty).help("Hide the requests up to now. The log file does not change.")
             }
             .padding(10)
             Divider()

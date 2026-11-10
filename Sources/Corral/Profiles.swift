@@ -80,9 +80,10 @@ final class ProfileList: ObservableObject {
         if found != profiles { profiles = found }
     }
 
-    func delete(_ p: Profile) { try? FileManager.default.removeItem(at: p.url); reload() }
+    /// To the Trash, not deleted: a profile is easy to lose and slow to make again. The Trash is the undo.
+    func delete(_ p: Profile) { try? FileManager.default.trashItem(at: p.url, resultingItemURL: nil); reload() }
 
-    func clear() { for p in profiles { try? FileManager.default.removeItem(at: p.url) }; reload() }
+    func clear() { for p in profiles { try? FileManager.default.trashItem(at: p.url, resultingItemURL: nil) }; reload() }
 
     /// Opens the file in the app that the Mac uses for it. Cachegrind files have no standard app, so say which ones work.
     func open(_ p: Profile) {
@@ -106,7 +107,7 @@ struct ProfilesView: View {
                 Text(ByteCountFormatter.string(fromByteCount: Int64(list.profiles.reduce(0) { $0 + $1.size }), countStyle: .file))
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Show in Finder") { NSWorkspace.shared.open(URL(fileURLWithPath: Corral().profilesDir)) }
-                Button("Clear", action: list.clear).disabled(list.profiles.isEmpty)
+                Button("Move All to Trash", action: list.clear).disabled(list.profiles.isEmpty)
             }
             .padding(10)
             if let error = list.error {
@@ -131,7 +132,7 @@ struct ProfilesView: View {
                         Button { NSWorkspace.shared.activateFileViewerSelecting([p.url]) } label: { Image(systemName: "folder") }
                             .buttonStyle(.borderless).help("Show in Finder").accessibilityLabel("Show in Finder")
                         Button { list.delete(p) } label: { Image(systemName: "trash") }
-                            .buttonStyle(.borderless).help("Delete").accessibilityLabel("Delete")
+                            .buttonStyle(.borderless).help("Move to Trash").accessibilityLabel("Move to Trash")
                     }
                     .padding(.vertical, 2)
                 }
