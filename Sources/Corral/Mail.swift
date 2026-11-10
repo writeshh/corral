@@ -174,7 +174,9 @@ final class MailServer: ObservableObject {
             listener.stateUpdateHandler = { [weak self] state in
                 guard case .failed(let error) = state else { return }
                 Task { @MainActor in
-                    self?.error = "Corral cannot receive mail on port \(Self.port): \(error.localizedDescription). Herd's mail service uses the same port."
+                    self?.error = error == .posix(.EADDRINUSE)
+                        ? "Another app uses port \(Self.port), so Corral cannot catch mail. Quit that app (for example Mailpit), then turn on Catch mail again."
+                        : "Corral cannot catch mail on port \(Self.port): \(error.localizedDescription)"
                     self?.stop()
                 }
             }
@@ -326,15 +328,24 @@ struct MailView: View {
                 // Like Finder: click selects, arrows move, Space previews, Delete moves to the Trash,
                 // and a double-click or Return opens the preview.
                 List(mail.messages, selection: $preview.selection) { m in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline) {
                             Text(m.subject).font(.body.weight(.medium)).lineLimit(1)
                             Spacer()
-                            Text(m.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                            Text(Self.when(m.date)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                .help(m.date.formatted(date: .complete, time: .standard))
                         }
-                        Text("\(m.from) → \(m.to)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        if !m.inbox.isEmpty { Text(m.inbox).font(.caption2).foregroundStyle(.tint) }
+                        HStack(spacing: 6) {
+                            // The inbox is the site that sent it: a tag, so the eye finds it in a long list.
+                            if !m.inbox.isEmpty {
+                                Text(m.inbox).font(.caption2.weight(.semibold)).foregroundStyle(.tint)
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(Color.brand.opacity(0.14), in: .rect(cornerRadius: 4))
+                            }
+                            Text("\(m.from) → \(m.to)").font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        }
                     }
+                    .padding(.vertical, 2)
                     .tag(m.url)
                 }
                 .contextMenu(forSelectionType: URL.self) { urls in
@@ -357,6 +368,13 @@ struct MailView: View {
             }
         }
         .quickLookPreview($preview.url)
+    }
+
+    /// "2 min ago" for today's mail, a date for older mail: a test reads the newest mail, and minutes matter there.
+    static func when(_ date: Date) -> String {
+        Calendar.current.isDateInToday(date)
+            ? date.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
+            : date.formatted(date: .abbreviated, time: .shortened)
     }
 
     private func trash(_ urls: Set<URL>) {
