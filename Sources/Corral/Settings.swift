@@ -51,7 +51,7 @@ struct StatusLine: View {
                     } else if let completed = model.completed {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                            Text("\(completed): done").foregroundStyle(.secondary)
+                            Text(completed).foregroundStyle(.secondary)
                         }
                         .transition(.opacity)
                     } else if let notice = model.notice {

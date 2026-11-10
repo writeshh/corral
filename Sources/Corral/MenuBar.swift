@@ -385,19 +385,19 @@ final class Model: ObservableObject {
                 if let label {
                     self.jobs -= 1
                     if self.jobs == 0 { self.busy = nil }
-                    if message == nil { self.showCompleted(label) }
+                    if message == nil { self.confirm("\(label): done") }
                 }
                 if let message { self.error = message }
             }
         }
     }
 
-    /// "Saving Xdebug settings" becomes a check mark with "Saving Xdebug settings: done" for 4 seconds.
-    private func showCompleted(_ label: String) {
-        completed = label
+    /// Completion feedback for 4 seconds, for example "Saving Xdebug settings: done" or "Copied https://shop.test".
+    func confirm(_ text: String) {
+        completed = text
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(4))
-            if self?.completed == label { self?.completed = nil }
+            if self?.completed == text { self?.completed = nil }
         }
     }
 
@@ -560,6 +560,7 @@ struct CorralApp: App {
 /// The search field's own bezel and buttons are off: the panel draws the icon, the clear button and the background.
 struct FilterField: NSViewRepresentable {
     @Binding var text: String
+    var onSubmit: () -> Void = {}
 
     func makeNSView(context: Context) -> NSSearchField {
         let field = NSSearchField()
@@ -577,12 +578,18 @@ struct FilterField: NSViewRepresentable {
         if field.stringValue != text { field.stringValue = text }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, onSubmit: onSubmit) }
 
     @MainActor final class Coordinator: NSObject, NSSearchFieldDelegate {
         let text: Binding<String>
-        init(text: Binding<String>) { self.text = text }
+        let onSubmit: () -> Void
+        init(text: Binding<String>, onSubmit: @escaping () -> Void) { self.text = text; self.onSubmit = onSubmit }
         func controlTextDidChange(_ note: Notification) { text.wrappedValue = (note.object as? NSTextField)?.stringValue ?? "" }
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+            onSubmit()
+            return true
+        }
     }
 }
 
@@ -649,7 +656,7 @@ struct Panel: View {
                 Image(nsImage: CorralApp.appIcon(size: 30))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Corral").font(.headline)
-                    Text(model.busy.map { "\($0)…" } ?? model.completed.map { "\($0): done" } ?? (model.running ? "Running" : "Stopped"))
+                    Text(model.busy.map { "\($0)…" } ?? model.completed ?? (model.running ? "Running" : "Stopped"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .contentTransition(.opacity)
@@ -768,6 +775,7 @@ struct Panel: View {
                     Button("Copy URL") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(app.url.absoluteString, forType: .string)
+                        model.confirm("Copied \(app.url.absoluteString)")
                     }
                 }
                 .help("Open \(app.url.absoluteString)")
@@ -829,7 +837,8 @@ struct Panel: View {
     private var filterField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            FilterField(text: $model.filter)
+            // Return opens the first match: type a few letters, press Return, and the site opens.
+            FilterField(text: $model.filter) { if let first = rows.first { NSWorkspace.shared.open(first.url) } }
             if !model.filter.isEmpty {
                 Button { model.filter = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless)
@@ -1032,6 +1041,7 @@ struct SiteRow: View {
         Button("Copy URL") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(row.url.absoluteString, forType: .string)
+            model.confirm("Copied \(row.url.absoluteString)") // a copy shows nothing else, so say it worked
         }
         let laravel = FileManager.default.fileExists(atPath: site.path + "/artisan")
         if site.proxy == nil && (laravel || Corral.wordPressContent(site.path) != nil) {
