@@ -40,6 +40,7 @@ struct Snapshot: Sendable {
     var mail = false
     var xdebug = XdebugSettings()
     var xdebugBuilds: [String] = []        // PHP versions in use whose build has Xdebug
+    var noXdebug: Set<String> = []         // installed PHP versions whose build is older than Xdebug
     var portless: [PortlessApp] = []
     var tools: [String: (version: String, updated: Bool)] = [:] // tool name -> the version bin/<tool> runs
 
@@ -69,6 +70,7 @@ struct Snapshot: Sendable {
         mail = c.config.mail
         xdebug = c.config.xdebug
         xdebugBuilds = c.neededPHP(php).filter { php[$0].flatMap(c.xdebugPath) != nil }
+        noXdebug = Set(php.filter { c.xdebugPath($0.value) == nil }.keys)
         portless = Corral.portlessApps()
         tools = Corral.tools.reduce(into: [:]) { $0[$1.name] = c.installedTool($1) }
         aliases = c.config.aliases

@@ -11,6 +11,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The PHP builds include Xdebug 3.5.3 as a shared extension (`xdebug.so` next to `php`). PHP loads it only when `php.ini` asks for it.
 - A debug pool for Xdebug. A second PHP-FPM for each PHP version loads Xdebug. nginx sends a request to it only with an `XDEBUG_SESSION` or `XDEBUG_TRIGGER` cookie or query argument. Normal requests run without Xdebug.
 - Settings > PHP > Xdebug and `corral xdebug [on|off]` turn the pool on or off. They set the mode, client host, client port, and when a session starts.
+- Settings > PHP shows "Get Xdebug" next to an installed PHP version whose build has no Xdebug. It installs the same version again from the newest builds. `corral xdebug` says to run `corral php:install` in this case.
 - The panel shows each debug pool as `php <version> debug`, and Corral restarts a debug pool that stops.
 - `corral run <command>` runs a development server on a free port and serves it at `https://<folder>.test` while it runs. `--name` and `--port` change the name and the port.
 - `corral new <name>` creates a Laravel project with the bundled installer in the parked folder, serves it over HTTPS, and sets `APP_URL`. Corral adds `--no-boost` unless you pass `--boost`.
@@ -30,7 +31,6 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - "Check for Updates" in Settings > About shows its result next to the button: checking, up to date, or the new version with an "Update and Restart" button. A manual check no longer installs by itself. Before, the result showed only in the menu bar panel.
 - After an automatic update, the panel says which version Corral updated to.
 - Settings > About no longer shows the "Telemetry" row. Corral still sends no telemetry.
-
 - `corral wp:setup`, `corral laravel:setup`, and the panel's setup actions create the database with Corral's PHP (`mysqli`). They no longer need the `mysql` client.
 
 ### Fixed

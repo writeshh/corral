@@ -166,6 +166,9 @@ struct PHPTab: View {
                             }
                             if newer, let latest {
                                 Button("Update to \(latest)") { model.run("Updating PHP \(v) to \(latest)") { try $0.installPHP(v) } }
+                            } else if latest != nil, model.snap.noXdebug.contains(v) {
+                                // The same version, built before Xdebug was in the builds. Installing again adds xdebug.so.
+                                Button("Get Xdebug") { model.run("Installing PHP \(v) again with Xdebug") { try $0.installPHP(v) } }
                             }
                             Button("Remove") { model.run("Removing PHP \(v)") { try $0.uninstallPHP(v) } }
                         }
@@ -359,7 +362,7 @@ struct XdebugSection: View {
 
     private var footer: String {
         let using = model.snap.xdebugBuilds.isEmpty
-            ? "No PHP build in use has Xdebug. Update PHP above."
+            ? "No PHP build in use has Xdebug. Click \"Get Xdebug\" or \"Update\" above."
             : "Debug pool for PHP \(model.snap.xdebugBuilds.joined(separator: ", "))."
         return "A request with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument runs in a second PHP-FPM pool that has Xdebug. Other requests run without it and stay fast. With the profiler on, XDEBUG_PROFILE also uses the pool and writes a cachegrind file (see Insights > Profiles), and each trigger starts only its own mode. \(using)"
     }

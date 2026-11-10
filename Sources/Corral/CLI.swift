@@ -252,7 +252,11 @@ enum CLI {
                 if x.enabled && x.detectEditor {
                     print(corral.editorListens ? "An editor listens on port \(x.clientPort): the menu bar app sends every request to the debug pool." : "No editor listens on port \(x.clientPort) now.")
                 }
-                if x.enabled { print("Debug pool for PHP \(versions.joined(separator: ", ")).") }
+                if x.enabled {
+                    print(versions.isEmpty
+                        ? "No PHP build in use has Xdebug. Run `corral php:install <version>` to get the newest build, which has it."
+                        : "Debug pool for PHP \(versions.joined(separator: ", ")).")
+                }
             case "queries":
                 if let word = arg1 {
                     guard word == "on" || word == "off" else { throw CorralError("Usage: corral queries [on|off]") }
