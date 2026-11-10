@@ -10,6 +10,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `corral mail:wait [inbox] [--timeout s]` waits for the next caught mail and prints it. A test can sign up a user, then wait for the welcome mail.
 - `corral mail:attachments [n] [folder]` saves the attachments of a caught message, with their original names.
+- "Send Mail to Corral" and the new `corral mail:use` also work for WordPress. Corral adds a must-use plugin that sends `wp_mail()` to Corral, with the site name as the inbox.
 
 ### Fixed
 

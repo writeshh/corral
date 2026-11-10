@@ -1680,9 +1680,17 @@ final class Corral: @unchecked Sendable {
         return true
     }
 
-    /// Points a Laravel site's mail at Corral. Keeps the first original as .env.corral.bak, like Herd's .env.herd-services.bak.
-    /// The SMTP user name is the site name, so the inbox shows which site sent a message.
-    func useCorralMail(_ site: Site) throws {
+    /// Points a site's mail at Corral, and returns what changed. The SMTP user name is the site name, so the inbox
+    /// shows which site sent a message. Laravel: the MAIL_ values in .env, with the first original kept as
+    /// .env.corral.bak, like Herd's .env.herd-services.bak. WordPress: a must-use plugin, so wp_mail() uses Corral.
+    @discardableResult
+    func useCorralMail(_ site: Site) throws -> String {
+        if !FileManager.default.fileExists(atPath: site.path + "/artisan"), let content = Self.wordPressContent(site.path) {
+            let dir = content + "/mu-plugins"
+            try mkdirs(dir)
+            try Self.wordPressMailPlugin(inbox: site.name).write(toFile: dir + "/corral-mail.php", atomically: true, encoding: .utf8)
+            return dir + "/corral-mail.php"
+        }
         let env = site.path + "/.env", backup = env + ".corral.bak"
         guard var text = try? String(contentsOfFile: env, encoding: .utf8) else { throw CorralError("\(site.name) has no .env file.") }
         if !FileManager.default.fileExists(atPath: backup) { try text.write(toFile: backup, atomically: true, encoding: .utf8) }
@@ -1690,6 +1698,38 @@ final class Corral: @unchecked Sendable {
         for key in ["MAIL_ENCRYPTION", "MAIL_SCHEME", "MAIL_PASSWORD"] where Self.iniValue(text, key) != nil { values[key] = "null" }
         for (key, value) in values.sorted(by: { $0.key < $1.key }) { text = Self.setEnv(text, key, value) }
         try text.write(toFile: env, atomically: true, encoding: .utf8)
+        return env
+    }
+
+    /// wp-content of a WordPress site: in the folder (classic layout) or in web/app (Bedrock).
+    static func wordPressContent(_ path: String) -> String? {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: path + "/wp-content") { return path + "/wp-content" }
+        if fm.fileExists(atPath: path + "/web/app"), fm.fileExists(atPath: path + "/web/wp-config.php") { return path + "/web/app" }
+        return nil
+    }
+
+    /// Sends every wp_mail() to Corral's mail server. The last phpmailer_init hook wins over SMTP plugins.
+    /// Delete the file to send mail as before.
+    static func wordPressMailPlugin(inbox: String) -> String {
+        """
+        <?php
+        /**
+         * Plugin Name: Corral Mail
+         * Description: Sends wp_mail() to Corral on 127.0.0.1:2525. Delete this file to send mail as before.
+         */
+        add_action('phpmailer_init', function ($mailer) {
+            $mailer->isSMTP();
+            $mailer->Host = '127.0.0.1';
+            $mailer->Port = 2525;
+            $mailer->SMTPAuth = true; // the user name is the inbox in Corral
+            $mailer->Username = '\(inbox.replacingOccurrences(of: "'", with: ""))';
+            $mailer->Password = 'corral';
+            $mailer->SMTPSecure = '';
+            $mailer->SMTPAutoTLS = false;
+        }, PHP_INT_MAX);
+
+        """
     }
 
     /// Like setIni, for KEY=value lines. A new key goes after the last MAIL_ line, or at the end.

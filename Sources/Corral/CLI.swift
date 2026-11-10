@@ -55,6 +55,7 @@ enum CLI {
       mail:show [n] | mail:links [n]   print message n (1 = newest) as raw .eml, or only its links
       mail:wait [inbox] [--timeout s]  wait for the next mail (60 s by default) and print it as in `mail`
       mail:attachments [n] [folder]    save the attachments of message n (1 = newest) to the folder (current by default)
+      mail:use [name]              send the site's mail to Corral (Laravel: .env, WordPress: a mu-plugin)
       mail:clear                   delete all caught mail
       tools                        versions of composer, wp, and laravel
       tools:update [name]          update composer, wp, or laravel (all by default). laravel:update is the same for laravel.
@@ -372,6 +373,13 @@ enum CLI {
                 guard let n = Int(arg1 ?? "1"), list.indices.contains(n - 1) else { throw CorralError("No message \(arg1 ?? "1"). Run corral mail to see the list.") }
                 let raw = String(decoding: try Data(contentsOf: list[n - 1].url), as: UTF8.self)
                 if args[0] == "mail:show" { print(raw) } else { MailMessage.links(raw).forEach { print($0) } }
+            case "mail:use":
+                let site = try corral.site(named: arg1)
+                guard site.proxy == nil, FileManager.default.fileExists(atPath: site.path + "/artisan") || Corral.wordPressContent(site.path) != nil else {
+                    throw CorralError("\(site.name) is not a Laravel or WordPress site.")
+                }
+                print("Changed \(try corral.useCorralMail(site)). Mail from \(site.name) goes to the inbox \(site.name).")
+                if !corral.config.mail { print("Turn on mail in Insights > Mail in the menu bar app.") }
             case "mail:clear":
                 let list = MailMessage.all(in: URL(fileURLWithPath: corral.mailDir))
                 for m in list { try FileManager.default.removeItem(at: m.url) }

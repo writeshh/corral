@@ -834,6 +834,13 @@ import Testing
     #expect(try CLI.waitForMail(in: mail, inbox: "shop", timeout: 5).subject == "Welcome")
     #expect(throws: CorralError.self) { try CLI.waitForMail(in: mail, inbox: nil, timeout: 0.3) }
 
+    // WordPress: "Send Mail to Corral" writes a must-use plugin with the site name as the inbox.
+    let site = tmp.appendingPathComponent("blog").path
+    try FileManager.default.createDirectory(atPath: site + "/wp-content", withIntermediateDirectories: true)
+    let file = try Corral(home: tmp.path + "/home").useCorralMail(Site(name: "blog", path: site))
+    #expect(file == site + "/wp-content/mu-plugins/corral-mail.php")
+    let plugin = try String(contentsOfFile: file, encoding: .utf8)
+    #expect(plugin.contains("$mailer->Port = 2525;") && plugin.contains("$mailer->Username = 'blog';") && plugin.contains("PHP_INT_MAX"))
 }
 
 @Test func mailListAndLinks() throws {

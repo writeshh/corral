@@ -974,11 +974,13 @@ struct SiteRow: View {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(row.url.absoluteString, forType: .string)
         }
-        if site.proxy == nil && FileManager.default.fileExists(atPath: site.path + "/artisan") {
+        let laravel = FileManager.default.fileExists(atPath: site.path + "/artisan")
+        if site.proxy == nil && (laravel || Corral.wordPressContent(site.path) != nil) {
             Button("Send Mail to Corral") {
-                model.run("Changing .env") { c in
-                    try c.useCorralMail(site)
-                    Task { @MainActor in model.notice = "\(site.name) sends mail to Corral. Turn on mail in Insights. Run php artisan config:clear if the config is cached." }
+                model.run(laravel ? "Changing .env" : "Adding the mail plugin") { c in
+                    let file = try c.useCorralMail(site)
+                    let hint = laravel ? "Run php artisan config:clear if the config is cached." : "Delete \((file as NSString).abbreviatingWithTildeInPath) to stop."
+                    Task { @MainActor in model.notice = "\(site.name) sends mail to Corral. Turn on mail in Insights. \(hint)" }
                 }
             }
         }
