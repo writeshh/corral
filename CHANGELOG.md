@@ -6,6 +6,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-10
+
 ### Added
 
 - In the panel's filter, Return opens the first matching site.
@@ -220,7 +222,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The menu bar panel shrinks after a banner closes, and the site list text is sharp.
 - Port numbers show without a thousands separator, for example 2525.
 
-[Unreleased]: https://github.com/writeshh/corral/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/writeshh/corral/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/writeshh/corral/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/writeshh/corral/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/writeshh/corral/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/writeshh/corral/compare/v0.5.0...v0.6.0
