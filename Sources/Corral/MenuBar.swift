@@ -512,6 +512,37 @@ struct CorralApp: App {
     }
 }
 
+/// The panel's filter. A SwiftUI TextField made macOS password AutoFill (SafariPlatformSupport) prepare its suggestion
+/// window when the panel opened, and that window could show empty in front of the panel. AutoFill skips search fields.
+/// The search field's own bezel and buttons are off: the panel draws the icon, the clear button and the background.
+struct FilterField: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = "Filter sites"
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        if let cell = field.cell as? NSSearchFieldCell { cell.searchButtonCell = nil; cell.cancelButtonCell = nil }
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    @MainActor final class Coordinator: NSObject, NSSearchFieldDelegate {
+        let text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+        func controlTextDidChange(_ note: Notification) { text.wrappedValue = (note.object as? NSTextField)?.stringValue ?? "" }
+    }
+}
+
 extension Color {
     /// Corral orange (#DF5D09), from the icon. Each mode gets a shade that keeps text readable (4.5:1 or more).
     static let brand = Color(nsColor: NSColor(name: nil) { appearance in
@@ -743,7 +774,7 @@ struct Panel: View {
     private var filterField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Filter sites", text: $model.filter).textFieldStyle(.plain)
+            FilterField(text: $model.filter)
             if !model.filter.isEmpty {
                 Button { model.filter = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless)

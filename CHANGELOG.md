@@ -6,6 +6,10 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- An empty box no longer shows in front of the menu bar panel when it first opens after a launch. macOS password AutoFill took the "Filter sites" field for a login field and opened its suggestion window. The field is now a search field, which AutoFill skips.
+
 ## [0.6.1] - 2026-11-10
 
 ### Fixed
