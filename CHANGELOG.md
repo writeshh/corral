@@ -15,6 +15,9 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - The menu bar icon opens a quick menu: the status, three buttons (Restart, Park Folder, Config), and the commands. The site list and its filter moved to the main window.
+- A click selects a site, and a double-click opens it. Before, a click opened it.
+- The main window and the Settings window use the Corral design system in light and dark mode: its colors, tabs, cards, switches, fields and buttons.
+- In Settings, the help text is in the row that it explains, and the "No changes" label is gone. Apply is off until a value changes.
 - The Insights window is now part of the main window. ⌘I opens the Insights view that you used last.
 - The quick menu header has a quiet stop button while the services run, and a Start button when they are stopped. It names a stopped service in yellow. The row of service names is gone.
 - Status colors are separate from the orange accent: teal for running, yellow for a stopped service.

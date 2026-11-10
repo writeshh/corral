@@ -1,36 +1,312 @@
 import ServiceManagement
 import SwiftUI
 
-/// The settings window (⌘,). Every change runs on Model's work queue, like the panel.
+/// The settings window (⌘,), drawn with the design system: tabs at the top, then cards of rows on the surface.
+/// Every change runs on Model's work queue, like the quick menu.
 struct SettingsView: View {
     @ObservedObject var model: Model
+    @AppStorage("settingsTab") private var tab = "general"
+
+    static let tabs = [
+        ("general", "General", "gearshape"), ("php", "PHP", "chevron.left.forwardslash.chevron.right"),
+        ("tools", "Tools", "wrench.and.screwdriver"), ("sites", "Sites", "folder"),
+        ("certificates", "Certificates", "lock"), ("about", "About", "info.circle"),
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
-            TabView {
-                GeneralTab(model: model).tabItem { Label("General", systemImage: "gearshape") }
-                PHPTab(model: model).tabItem { Label("PHP", systemImage: "chevron.left.forwardslash.chevron.right") }
-                ToolsTab(model: model).tabItem { Label("Tools", systemImage: "wrench.and.screwdriver") }
-                SitesTab(model: model).tabItem { Label("Sites", systemImage: "folder") }
-                CertificatesTab(model: model).tabItem { Label("Certificates", systemImage: "lock") }
-                AboutTab(model: model).tabItem { Label("About", systemImage: "info.circle") }
+            Tabs(items: Self.tabs, selection: $tab).padding(.top, 4).padding(.bottom, 12)
+            Rectangle().fill(Color.border).frame(height: 1)
+            // All pages stay alive, so a change of tab keeps the values that are not applied yet.
+            ZStack {
+                page("general") { GeneralTab(model: model) }
+                page("php") { PHPTab(model: model) }
+                page("tools") { ToolsTab(model: model) }
+                page("sites") { SitesTab(model: model) }
+                page("certificates") { CertificatesTab(model: model) }
+                page("about") { AboutTab(model: model) }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             StatusLine(model: model)
         }
-        .frame(width: 580, height: 460)
-        .tint(.brand)
+        .frame(width: 580, height: 520)
+        .buttonStyle(CorralButtonStyle())
+        .designSurface()
+        .background(SurfaceWindow())
         .onAppear { model.refresh() }
+    }
+
+    private func page(_ id: String, @ViewBuilder _ content: () -> some View) -> some View {
+        content().opacity(tab == id ? 1 : 0).allowsHitTesting(tab == id).accessibilityHidden(tab != id)
     }
 }
 
-/// A section footer. The Settings window aligns multi-line footers to the trailing edge, which looks broken under
-/// leading labels, so every footer sets its alignment itself.
+/// Gives the window of a view the surface color under a transparent title bar, so the title bar is not system gray.
+struct SurfaceWindow: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { // the view has its window one pass later
+            view.window?.titlebarAppearsTransparent = true
+            view.window?.backgroundColor = .dynamic(dark: 0x1A1917, light: 0xFBFAF7)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+}
+
+// MARK: - Form parts of the design system
+
+/// The tabs of the design system: one raised group, and the active tab on the pressed surface.
+struct Tabs: View {
+    let items: [(String, String, String)] // id, title, symbol
+    @Binding var selection: String
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(items, id: \.0) { id, title, symbol in
+                Button { selection = id } label: {
+                    HStack(spacing: 6) { Image(systemName: symbol); Text(title) }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(selection == id ? Color.ink : Color.inkMuted)
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
+                        .background(selection == id ? Color.surfacePressed : .clear, in: .rect(cornerRadius: 6))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selection == id ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(Color.surfaceRaised, in: .rect(cornerRadius: 8))
+        .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.border) }
+    }
+}
+
+/// A settings page: cards in a column on the surface.
+struct SettingsPage<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) { content }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// A card of rows on the raised surface, with an optional title above and an optional note below.
+struct Card<Content: View, Header: View, Note: View>: View {
+    let content: Content
+    let header: Header
+    let footer: Note
+
+    init(@ViewBuilder content: () -> Content, @ViewBuilder header: () -> Header, @ViewBuilder footer: () -> Note) {
+        (self.content, self.header, self.footer) = (content(), header(), footer())
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            header.font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.inkMuted).padding(.horizontal, 12)
+            VStack(spacing: 0) { content }
+                .background(Color.surfaceRaised)
+                .clipShape(.rect(cornerRadius: 8))
+                .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.border) } // also covers the hairline of the last row
+            footer.padding(.horizontal, 12)
+        }
+    }
+}
+
+extension Card where Header == EmptyView {
+    init(@ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Note) {
+        self.init(content: content, header: { EmptyView() }, footer: footer)
+    }
+}
+
+extension Card where Note == EmptyView {
+    init(@ViewBuilder content: () -> Content, @ViewBuilder header: () -> Header) {
+        self.init(content: content, header: header, footer: { EmptyView() })
+    }
+}
+
+extension Card where Header == EmptyView, Note == EmptyView {
+    init(@ViewBuilder content: () -> Content) {
+        self.init(content: content, header: { EmptyView() }, footer: { EmptyView() })
+    }
+}
+
+extension Card where Header == Text, Note == EmptyView {
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.init(content: content, header: { Text(title) }, footer: { EmptyView() })
+    }
+}
+
+/// One setting: a label on the left with its help below it, and one control on the right.
+struct SettingRow<Label: View, Control: View>: View {
+    let control: Control
+    let label: Label
+
+    init(@ViewBuilder content: () -> Control, @ViewBuilder label: () -> Label) {
+        (self.control, self.label) = (content(), label())
+    }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) { label }
+                .font(.system(size: 13))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            control
+        }
+        .settingRow()
+    }
+}
+
+/// The label of a row: the title, and the help text in the quiet style.
+struct RowLabel: View {
+    let title: String
+    var help: String?
+
+    var body: some View {
+        if !title.isEmpty { Text(title) }
+        if let help { Text(help).rowHelp() }
+    }
+}
+
+extension SettingRow where Label == RowLabel {
+    init(_ title: String, help: String? = nil, @ViewBuilder content: () -> Control) {
+        self.init(content: content, label: { RowLabel(title: title, help: help) })
+    }
+}
+
+extension SettingRow where Label == RowLabel, Control == Text {
+    init(_ title: String, value: String) {
+        self.init(title) { Text(value).foregroundStyle(Color.inkMuted) }
+    }
+}
+
+extension View {
+    /// The padding of a card row and the hairline under it.
+    func settingRow() -> some View {
+        self.frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(minHeight: 40)
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.border).frame(height: 1) }
+    }
+
+    /// Help text in a row: small and quiet.
+    func rowHelp() -> some View { font(.system(size: 11)).foregroundStyle(Color.inkMuted) }
+
+    /// The text field of the design system: the surface color with a strong edge.
+    func designField() -> some View {
+        textFieldStyle(.plain)
+            .font(.system(size: 13))
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(Color.surface, in: .rect(cornerRadius: 6))
+            .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(Color.borderStrong) }
+    }
+}
+
+/// A switch with its label and help in a row.
+struct ToggleRow: View {
+    let title: String
+    var help: String?
+    @Binding var isOn: Bool
+
+    init(_ title: String, help: String? = nil, isOn: Binding<Bool>) {
+        (self.title, self.help, self._isOn) = (title, help, isOn)
+    }
+
+    var body: some View {
+        SettingRow(title, help: help) { Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(CorralToggleStyle()) }
+    }
+}
+
+/// The switch of the design system: the brand color when on, the pressed surface with a strong edge when off.
+struct CorralToggleStyle: ToggleStyle {
+    @Environment(\.isEnabled) private var enabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let on = configuration.isOn
+        return Capsule().fill(on ? Color.brand : Color.surfacePressed)
+            .overlay { Capsule().strokeBorder(on ? Color.brand : Color.borderStrong) }
+            .frame(width: 32, height: 18)
+            .overlay(alignment: on ? .trailing : .leading) {
+                Circle().fill(on ? Color.onBrand : Color.inkMuted).frame(width: 12, height: 12).padding(3)
+            }
+            .contentShape(.capsule)
+            .onTapGesture { if enabled { configuration.isOn.toggle() } }
+            .opacity(enabled ? 1 : 0.45)
+        .accessibilityRepresentation { Toggle(isOn: configuration.$isOn) { configuration.label } }
+    }
+}
+
+/// A text field with its label and help in a row.
+struct FieldRow: View {
+    let title: String
+    var help: String?
+    @Binding var text: String
+    var prompt: String?
+
+    init(_ title: String, help: String? = nil, text: Binding<String>, prompt: String? = nil) {
+        (self.title, self.help, self._text, self.prompt) = (title, help, text, prompt)
+    }
+
+    var body: some View {
+        SettingRow(title, help: help) {
+            TextField(title, text: $text, prompt: prompt.map { Text(verbatim: $0).foregroundStyle(Color.inkFaint) }) // verbatim: a URL must not become a link.labelsHidden().designField().frame(width: 200)
+        }
+    }
+}
+
+/// A menu of choices with its label in a row. The menu looks like a default button with the current choice.
+struct PickerRow: View {
+    let title: String
+    @Binding var selection: String
+    let options: [(value: String, label: String)]
+
+    init(_ title: String, selection: Binding<String>, options: [(String, String)]) {
+        (self.title, self._selection, self.options) = (title, selection, options.map { (value: $0.0, label: $0.1) })
+    }
+
+    var body: some View {
+        SettingRow(title) {
+            Menu {
+                ForEach(options, id: \.value) { option in
+                    Toggle(option.label, isOn: Binding(get: { selection == option.value }, set: { if $0 { selection = option.value } }))
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(options.first { $0.value == selection }?.label ?? "None")
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Color.inkMuted)
+                }
+                .font(.system(size: 13, weight: .medium))
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .background(Color.surface, in: .rect(cornerRadius: 6))
+                .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(Color.borderStrong) }
+                .contentShape(.rect)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .accessibilityLabel(title)
+        }
+    }
+}
+
+/// A note under a card, in the quiet style.
 struct Footer: View {
     let text: String
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text).foregroundStyle(.secondary).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+        Text(text).rowHelp().multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -42,15 +318,15 @@ struct StatusLine: View {
     var body: some View {
         if model.busy != nil || model.error != nil || model.completed != nil || model.notice != nil {
             VStack(spacing: 0) {
-                Divider()
+                Rectangle().fill(Color.border).frame(height: 1)
                 Group {
                     if let busy = model.busy {
                         HStack(spacing: 8) { ProgressView().controlSize(.small); Text("\(busy)…").foregroundStyle(.secondary) }
                     } else if let error = model.error {
-                        line("exclamationmark.triangle.fill", .red, error) { model.error = nil }
+                        line("exclamationmark.triangle.fill", .danger, error) { model.error = nil }
                     } else if let completed = model.completed {
                         HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.success)
                             Text(completed).foregroundStyle(.secondary)
                         }
                         .transition(.opacity)
@@ -60,7 +336,7 @@ struct StatusLine: View {
                 }
                 .font(.callout).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 12)
             }
-            .background(.bar)
+            .background(Color.surfaceRaised)
         }
     }
 
@@ -80,61 +356,53 @@ struct GeneralTab: View {
     @AppStorage("showInDock") private var showInDock = false
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Open Corral at login", isOn: Binding(
+        SettingsPage {
+            Card {
+                ToggleRow("Open Corral at login", help: "Corral starts the services again if they ran before, and restarts a service that stops.", isOn: Binding(
                     get: { model.snap.loginItem == .enabled || model.snap.loginItem == .requiresApproval },
                     set: model.setLaunchAtLogin
                 ))
                 if model.snap.loginItem == .requiresApproval {
-                    LabeledContent("Allow Corral in Login Items") {
+                    SettingRow("Allow Corral in Login Items") {
                         Button("Open System Settings") { SMAppService.openSystemSettingsLoginItems() }
                     }
                 }
-            } footer: {
-                Footer("Corral starts the services again if they ran before, and restarts a service that stops.")
             }
-            Section {
-                Toggle("Show Corral in the Dock", isOn: $showInDock).onChange(of: showInDock) { Dock.update() }
-            } footer: {
-                Footer("Corral always shows in the Dock and in ⌘-Tab while a Corral window is open. Turn this on to keep it there.")
+            Card {
+                ToggleRow("Show Corral in the Dock", help: "Corral always shows in the Dock and in ⌘-Tab while a Corral window is open. Turn this on to keep it there.", isOn: $showInDock)
+                    .onChange(of: showInDock) { Dock.update() }
             }
-            Section {
-                TextField("Main TLD", text: $domains.tld)
-                TextField("Extra TLDs", text: $domains.aliases, prompt: Text("internal"))
+            Card {
+                FieldRow("Main TLD", help: "Each site answers <site>.<TLD> for every TLD.", text: $domains.tld)
+                FieldRow("Extra TLDs", help: "Separate the names with commas. A site can add more names with \"domains\" in .corral.json.", text: $domains.aliases, prompt: "internal, localhost")
                 let unchanged = domains.tld == model.snap.tld && domains.aliases == model.snap.aliases.joined(separator: ", ")
-                LabeledContent(unchanged ? "No changes" : "Changes not applied") {
+                SettingRow(unchanged ? "" : "Changes not applied", help: "Corral asks for your password to update /etc/resolver.") {
                     Button("Apply", action: applyDomains).disabled(model.busy != nil || unchanged)
                 }
             } header: {
                 Text("Domains")
-            } footer: {
-                Footer("Each site answers <site>.<TLD> for every TLD. A site can add more names with \"domains\" in .corral.json. Corral asks for your password to update /etc/resolver.")
             }
             if model.snap.herdFound { // the same rules as the switch in the panel's menu
-                Section {
-                    Toggle("Serve .test instead of Herd", isOn: Binding(
+                Card {
+                    ToggleRow("Serve .test instead of Herd", help: "Quit Herd first. Herd takes .test back while it runs.", isOn: Binding(
                         get: { model.snap.ownsTest },
                         set: { on in
                             if on { model.run("Taking over .test") { try $0.takeover() } }
                             else { model.run("Giving .test back") { try $0.runAsAdmin($0.handbackScript()) } }
                         }
                     ))
-                } footer: {
-                    Footer("Quit Herd first. Herd takes .test back while it runs.")
                 }
                 .disabled(model.snap.tld == Corral.sharedTLD)
             }
-            Section {
-                LabeledContent("Services") {
+            Card {
+                SettingRow("Services") {
                     Button("Restart") { model.run("Restarting") { c in c.stop(); try c.start() } }.disabled(!model.running)
                 }
-                LabeledContent("Config folder") {
+                SettingRow("Config folder") {
                     Button("Show in Finder") { NSWorkspace.shared.open(URL(fileURLWithPath: model.snap.home)) }
                 }
             }
         }
-        .formStyle(.grouped)
         .onAppear { domains.tld = model.snap.tld; domains.aliases = model.snap.aliases.joined(separator: ", ") }
     }
 
@@ -192,14 +460,14 @@ struct PHPTab: View {
     }
 
     var body: some View {
-        Form {
-            Section("Installed") {
-                if model.snap.versions.isEmpty { Text("No PHP version is installed.").foregroundStyle(.secondary) }
+        SettingsPage {
+            Card("Installed") {
+                if model.snap.versions.isEmpty { Text("No PHP version is installed.").foregroundStyle(.secondary).settingRow() }
                 ForEach(model.snap.versions.reversed(), id: \.self) { v in
                     let full = model.snap.builds[v]
                     let latest = model.latestPHP[v]
                     let newer = latest.map { $0.compare(full ?? v, options: .numeric) == .orderedDescending } ?? false
-                    LabeledContent {
+                    SettingRow {
                         HStack {
                             if let ini = model.snap.iniPaths[v] {
                                 Button("php.ini") { NSWorkspace.shared.open(URL(fileURLWithPath: ini)) }.help(ini)
@@ -211,31 +479,29 @@ struct PHPTab: View {
                                 Button("Get Xdebug") { model.run("Installing PHP \(v) again with Xdebug") { try $0.installPHP(v) } }
                             }
                             Button("Remove…") { if confirmRemove(v) { model.run("Removing PHP \(v)") { try $0.uninstallPHP(v) } } }
+                                .buttonStyle(CorralButtonStyle(danger: true))
                         }
                         .disabled(model.busy != nil)
                     } label: {
                         Text("PHP \(full ?? v)")
-                        Text(newer ? "Update available" : latest == nil ? "Corral build" : "Up to date")
+                        Text(newer ? "Update available" : latest == nil ? "Corral build" : "Up to date").rowHelp()
                     }
                 }
-                Picker("Settings for", selection: Binding(get: { settings.version ?? "" }, set: { settings.switchTo($0, model.snap) })) {
-                    ForEach(model.snap.versions.reversed(), id: \.self) { Text("PHP \($0)").tag($0) }
-                }
+                PickerRow("Settings for", selection: Binding(get: { settings.version ?? "" }, set: { settings.switchTo($0, model.snap) }),
+                          options: model.snap.versions.reversed().map { ($0, "PHP \($0)") })
             }
             if let version = settings.version, model.snap.versions.contains(version) {
                 PHPSettingsSections(model: model, settings: settings, version: version)
             }
             XdebugSection(model: model, draft: xdebug)
-            Section {
-                Picker("Global version", selection: Binding(
+            Card {
+                PickerRow("Global version", selection: Binding(
                     get: { model.snap.globalPHP ?? "" },
                     set: { v in model.run("Switching PHP") { c in c.config.php = v; try c.apply() } }
-                )) {
-                    ForEach(model.snap.versions, id: \.self) { Text("PHP \($0)").tag($0) }
-                }
+                ), options: model.snap.versions.map { ($0, "PHP \($0)") })
                 let missing = Corral.phpChoices.filter { !model.snap.versions.contains($0) }
                 if !missing.isEmpty {
-                    LabeledContent("Install") {
+                    SettingRow("Install") {
                         HStack {
                             ForEach(missing, id: \.self) { v in
                                 Button(model.latestPHP[v] ?? v) { model.run("Installing PHP \(v)") { try $0.installPHP(v) } }
@@ -246,7 +512,6 @@ struct PHPTab: View {
                 }
             }
         }
-        .formStyle(.grouped)
         .onAppear {
             if settings.version == nil, let v = model.snap.globalPHP { settings.load(v, model.snap) }
             model.checkPHPUpdates()
@@ -312,34 +577,30 @@ struct PHPSettingsSections: View {
     let version: String
 
     var body: some View {
-        Section {
-            TextField("Memory limit", text: settings.binding("memory_limit"), prompt: Text("1024M, or -1 for no limit"))
-            TextField("Maximum upload size", text: settings.binding("upload_max_filesize"), prompt: Text("512M"))
-            TextField("Maximum execution time (seconds)", text: settings.binding("max_execution_time"), prompt: Text("600"))
-            TextField("Maximum input variables", text: settings.binding("max_input_vars"), prompt: Text("1000"))
-            Toggle("Display errors", isOn: settings.flag("display_errors"))
-            TextField("Error reporting", text: settings.binding("error_reporting"), prompt: Text("E_ALL"))
-            TextField("Time zone", text: settings.binding("date.timezone"), prompt: Text("UTC"))
-            Toggle("OPcache", isOn: settings.flag("opcache.enable"))
-            TextField("Output buffering (bytes)", text: settings.binding("output_buffering"), prompt: Text("4096"))
+        Card {
+            FieldRow("Memory limit", text: settings.binding("memory_limit"), prompt: "1024M, or -1 for no limit")
+            FieldRow("Maximum upload size", text: settings.binding("upload_max_filesize"), prompt: "512M")
+            FieldRow("Maximum execution time (seconds)", text: settings.binding("max_execution_time"), prompt: "600")
+            FieldRow("Maximum input variables", text: settings.binding("max_input_vars"), prompt: "1000")
+            ToggleRow("Display errors", isOn: settings.flag("display_errors"))
+            FieldRow("Error reporting", text: settings.binding("error_reporting"), prompt: "E_ALL")
+            FieldRow("Time zone", text: settings.binding("date.timezone"), prompt: "UTC")
+            ToggleRow("OPcache", isOn: settings.flag("opcache.enable"))
+            FieldRow("Output buffering (bytes)", text: settings.binding("output_buffering"), prompt: "4096")
         } header: {
             Text("PHP \(version) settings")
         }
-        Section {
-            Picker("Process manager", selection: $settings.pool.pm) {
-                Text("Dynamic").tag("dynamic")
-                Text("On demand").tag("ondemand")
-                Text("Static").tag("static")
-            }
-            TextField("Maximum processes", text: settings.number(\.maxChildren))
-            TextField("Request timeout (seconds, 0 = none)", text: settings.number(\.requestTerminateTimeout))
-            TextField("Slow log after (seconds, 0 = off)", text: settings.number(\.slowlogTimeout))
+        Card {
+            PickerRow("Process manager", selection: $settings.pool.pm, options: [("dynamic", "Dynamic"), ("ondemand", "On demand"), ("static", "Static")])
+            FieldRow("Maximum processes", text: settings.number(\.maxChildren))
+            FieldRow("Request timeout (seconds, 0 = none)", text: settings.number(\.requestTerminateTimeout))
+            FieldRow("Slow log after (seconds, 0 = off)", text: settings.number(\.slowlogTimeout))
         } header: {
             Text("PHP-FPM")
         }
         // One Apply for both sections above, in its own row, so it is clear that it saves both.
-        Section {
-            LabeledContent(settings.changed(model.snap) ? "PHP \(version) has changes that are not applied" : "No changes") {
+        Card {
+            SettingRow(settings.changed(model.snap) ? "PHP \(version) has changes that are not applied" : "") {
                 HStack {
                     Button("Revert") { settings.load(version, model.snap) }
                     Button("Apply", action: apply).keyboardShortcut(.defaultAction)
@@ -395,23 +656,20 @@ struct XdebugSection: View {
     @ObservedObject var draft: XdebugDraft
 
     var body: some View {
-        Section {
-            Toggle("Debug pool (Xdebug)", isOn: $draft.enabled)
+        Card {
+            ToggleRow("Debug pool (Xdebug)", isOn: $draft.enabled)
             Group { // the pool's settings do nothing while the pool is off
-                TextField("Mode", text: $draft.mode, prompt: Text("debug,develop"))
-                TextField("Client host", text: $draft.host, prompt: Text("127.0.0.1"))
-                TextField("Client port", text: $draft.port, prompt: Text("9003"))
+                FieldRow("Mode", text: $draft.mode, prompt: "debug,develop")
+                FieldRow("Client host", text: $draft.host, prompt: "127.0.0.1")
+                FieldRow("Client port", text: $draft.port, prompt: "9003")
             }
             .disabled(!draft.enabled)
-            Picker("Start a session", selection: $draft.start) {
-                Text("For every request in the pool").tag("yes")
-                Text("Only with XDEBUG_TRIGGER").tag("trigger")
-            }
-            .disabled(!draft.enabled || draft.profile)
-            Toggle("Profiler (XDEBUG_PROFILE)", isOn: $draft.profile).disabled(!draft.enabled)
-            Toggle("Use the pool while the editor listens", isOn: $draft.detect).disabled(!draft.enabled)
+            PickerRow("Start a session", selection: $draft.start, options: [("yes", "For every request in the pool"), ("trigger", "Only with XDEBUG_TRIGGER")])
+                .disabled(!draft.enabled || draft.profile)
+            ToggleRow("Profiler (XDEBUG_PROFILE)", isOn: $draft.profile).disabled(!draft.enabled)
+            ToggleRow("Use the pool while the editor listens", isOn: $draft.detect).disabled(!draft.enabled)
                 .help("While a program listens on the client port on this Mac, every PHP request runs with Xdebug, without a cookie.")
-            LabeledContent(draft.settings() == model.snap.xdebug ? "No changes" : "Changes not applied") {
+            SettingRow(draft.settings() == model.snap.xdebug ? "" : "Changes not applied") {
                 HStack {
                     Button("Revert") { draft.load(model.snap.xdebug) }
                     Button("Apply", action: apply)
@@ -462,13 +720,13 @@ struct ToolsTab: View {
     @StateObject private var wp = WordPressDraft()
 
     var body: some View {
-        Form {
-            Section {
+        SettingsPage {
+            Card {
                 ForEach(Corral.tools) { tool in
                     let have = model.snap.tools[tool.name]
                     let latest = model.latestTools[tool.name]
                     let newer = latest.map { $0.compare(have?.version ?? "0", options: .numeric) == .orderedDescending } ?? false
-                    LabeledContent {
+                    SettingRow {
                         if newer, let latest {
                             Button(have == nil ? "Install \(latest)" : "Update to \(latest)") {
                                 model.run("Updating \(tool.title)") { try $0.updateTool(tool) }
@@ -477,19 +735,19 @@ struct ToolsTab: View {
                         }
                     } label: {
                         Text(have.map { "\(tool.title) \($0.version)" } ?? tool.title)
-                        Text(have == nil ? "Not installed" : newer ? "Update available" : latest == nil ? (have!.updated ? "Updated copy" : "Bundled with Corral") : "Up to date")
+                        Text(have == nil ? "Not installed" : newer ? "Update available" : latest == nil ? (have!.updated ? "Updated copy" : "Bundled with Corral") : "Up to date").rowHelp()
                     }
                 }
             } footer: {
                 Footer("Run them in a terminal as composer, wp, and laravel, after you put Corral's bin folder in PATH.")
             }
-            Section {
-                TextField("Admin user", text: $wp.values.adminUser)
-                TextField("Admin password", text: $wp.values.adminPassword)
-                TextField("Admin email", text: $wp.values.adminEmail, prompt: Text("admin@<site>.\(model.snap.tld)"))
-                TextField("Locale", text: $wp.values.locale, prompt: Text("en_US"))
-                TextField("Table prefix", text: $wp.values.tablePrefix, prompt: Text("wp_"))
-                LabeledContent(wp.values == model.snap.wordpress ? "No changes" : "Changes not applied") {
+            Card {
+                FieldRow("Admin user", text: $wp.values.adminUser)
+                FieldRow("Admin password", text: $wp.values.adminPassword)
+                FieldRow("Admin email", text: $wp.values.adminEmail, prompt: "admin@<site>.\(model.snap.tld)")
+                FieldRow("Locale", text: $wp.values.locale, prompt: "en_US")
+                FieldRow("Table prefix", text: $wp.values.tablePrefix, prompt: "wp_")
+                SettingRow(wp.values == model.snap.wordpress ? "" : "Changes not applied") {
                     HStack {
                         Button("Revert") { wp.values = model.snap.wordpress }
                         Button("Apply", action: applyWordPress)
@@ -502,7 +760,6 @@ struct ToolsTab: View {
                 Footer("\"Set Up WordPress…\" and corral wp:setup use these values. The password is visible, because the site runs only on this Mac.")
             }
         }
-        .formStyle(.grouped)
         .onAppear { model.checkToolUpdates(); wp.loadOnce(model.snap.wordpress) }
     }
 }
@@ -520,49 +777,47 @@ struct SitesTab: View {
     @StateObject private var draft = ProxyDraft()
 
     var body: some View {
-        Form {
-            Section {
+        SettingsPage {
+            Card {
                 ForEach(model.snap.parked, id: \.self) { dir in
-                    LabeledContent((dir as NSString).abbreviatingWithTildeInPath) {
+                    SettingRow((dir as NSString).abbreviatingWithTildeInPath) {
                         remove("Stop serving \(dir)") { c in c.config.parked.removeAll { $0 == dir } }
                     }
                 }
-                Button("Park Folder…", action: model.park)
+                SettingRow("Serve the subfolders of one more folder") { Button("Park Folder…", action: model.park) }
             } header: {
                 Text("Parked folders")
-            } footer: {
-                Footer("Each subfolder is a site.")
             }
-            Section("Links") {
-                if model.snap.links.isEmpty { Text("No linked folders. A link serves one project folder outside the parked folders.").foregroundStyle(.secondary) }
+            Card("Links") {
+                if model.snap.links.isEmpty { Text("No linked folders. A link serves one project folder outside the parked folders.").foregroundStyle(.secondary).settingRow() }
                 ForEach(model.snap.links, id: \.name) { link in
-                    LabeledContent {
+                    SettingRow {
                         remove("Remove link \(link.name)") { c in c.config.links[link.name] = nil }
                     } label: {
                         Text(link.name)
-                        Text((link.path as NSString).abbreviatingWithTildeInPath)
+                        Text((link.path as NSString).abbreviatingWithTildeInPath).rowHelp()
                     }
                 }
-                Button("Link Folder…", action: model.link)
+                SettingRow("Serve one project folder") { Button("Link Folder…", action: model.link) }
             }
-            Section("Proxies") {
+            Card("Proxies") {
                 ForEach(model.snap.proxies, id: \.name) { proxy in
-                    LabeledContent {
+                    SettingRow {
                         remove("Remove proxy \(proxy.name)") { c in c.config.proxies[proxy.name] = nil }
                     } label: {
                         Text(proxy.name)
-                        Text(proxy.url)
+                        Text(proxy.url).rowHelp()
                     }
                 }
                 HStack {
-                    TextField("Proxy name", text: $draft.name, prompt: Text("name")).frame(width: 120)
-                    TextField("Proxy URL", text: $draft.url, prompt: Text("http://127.0.0.1:3000"))
+                    TextField("Proxy name", text: $draft.name, prompt: Text("name").foregroundStyle(Color.inkFaint)).designField().frame(width: 120)
+                    TextField("Proxy URL", text: $draft.url, prompt: Text(verbatim: "http://127.0.0.1:3000").foregroundStyle(Color.inkFaint)).designField()
                     Button("Add", action: addProxy).disabled(draft.name.isEmpty || draft.url.isEmpty)
                 }
                 .labelsHidden()
+                .settingRow()
             }
         }
-        .formStyle(.grouped)
     }
 
     private func remove(_ help: String, _ change: @escaping @Sendable (Corral) -> Void) -> some View {
@@ -592,33 +847,32 @@ struct CertificatesTab: View {
     @ObservedObject var model: Model
 
     var body: some View {
-        Form {
-            Section {
-                if model.snap.certs.isEmpty { Text("No site uses HTTPS.").foregroundStyle(.secondary) }
+        SettingsPage {
+            Card {
+                if model.snap.certs.isEmpty { Text("No site uses HTTPS.").foregroundStyle(.secondary).settingRow() }
                 ForEach(model.snap.certs, id: \.host) { cert in
-                    LabeledContent(cert.host) {
+                    SettingRow(cert.host) {
                         if let date = cert.expires {
                             Text("Expires \(date.formatted(date: .abbreviated, time: .omitted))")
-                                .foregroundStyle(date < .now.addingTimeInterval(30 * 86400) ? .orange : .secondary)
+                                .foregroundStyle(date < .now.addingTimeInterval(30 * 86400) ? Color.warning : Color.inkMuted)
                         } else {
-                            Text("Missing").foregroundStyle(.red)
+                            Text("Missing").foregroundStyle(Color.danger)
                         }
                     }
                 }
             } footer: {
                 Footer("Corral renews certificates that expire within 30 days when the services start.")
             }
-            Section {
-                LabeledContent("Expiring certificates") {
+            Card {
+                SettingRow("Expiring certificates") {
                     Button("Renew Now") { model.run("Renewing") { c in try c.renewCertificates(); try c.apply() } }
                 }
-                LabeledContent("Local certificate authority") {
+                SettingRow("Local certificate authority") {
                     Button("Trust Again") { model.run("Trusting the CA") { c in try c.ensureCA(); try c.trustCA() } }
                 }
             }
             .disabled(model.busy != nil)
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -631,26 +885,27 @@ struct AboutTab: View {
     }
 
     var body: some View {
-        Form {
-            Section {
+        SettingsPage {
+            Card {
                 HStack(spacing: 14) {
                     Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 64, height: 64) // follows dark mode
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Corral").font(.title2.weight(.semibold))
+                        Text("Corral").font(.system(size: 15, weight: .semibold))
                         Text("Local PHP sites on your Mac.").foregroundStyle(.secondary)
                     }
                 }
                 .padding(.vertical, 4)
+                .settingRow()
             }
-            Section {
-                LabeledContent("Version", value: version)
-                Toggle("Install updates automatically", isOn: $autoUpdate)
+            Card {
+                SettingRow("Version", value: version)
+                ToggleRow("Install updates automatically", isOn: $autoUpdate)
                 if let update = model.update {
-                    LabeledContent("Corral \(update.version) is available.") {
+                    SettingRow("Corral \(update.version) is available.") {
                         Button("Update and Restart") { model.installUpdate() }.disabled(model.busy != nil)
                     }
                 } else {
-                    LabeledContent {
+                    SettingRow {
                         Button("Check for Updates") { model.checkForUpdate(manual: true) }.disabled(model.busy != nil || model.checkingUpdate)
                     } label: {
                         if model.checkingUpdate {
@@ -663,20 +918,19 @@ struct AboutTab: View {
             } footer: {
                 Footer("Corral looks for a new version at launch and once a day. With automatic updates on, it installs the new version and restarts. Your sites keep running.")
             }
-            Section {
-                LabeledContent("nginx", value: "BSD 2-Clause")
-                LabeledContent("dnsmasq", value: "GPL 2 (source included)")
-                LabeledContent("PHP", value: "PHP License 3.01")
-                LabeledContent("Composer", value: "MIT")
-                LabeledContent("WP-CLI", value: "MIT")
-                LabeledContent("Laravel Installer", value: "MIT")
+            Card {
+                SettingRow("nginx", value: "BSD 2-Clause")
+                SettingRow("dnsmasq", value: "GPL 2 (source included)")
+                SettingRow("PHP", value: "PHP License 3.01")
+                SettingRow("Composer", value: "MIT")
+                SettingRow("WP-CLI", value: "MIT")
+                SettingRow("Laravel Installer", value: "MIT")
                 if let licenses {
-                    Button("Show License Files") { NSWorkspace.shared.open(URL(fileURLWithPath: licenses)) }
+                    SettingRow("License files") { Button("Show in Finder") { NSWorkspace.shared.open(URL(fileURLWithPath: licenses)) } }
                 }
             } header: {
                 Text("Bundled software")
             }
         }
-        .formStyle(.grouped)
     }
 }
