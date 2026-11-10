@@ -628,6 +628,7 @@ struct Panel: View {
         .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0), value: model.error)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fit(height: $0) }
         .onAppear { model.refresh() }
+        .onDisappear { model.filter = "" } // a filter left from last time would make sites look missing
     }
 
     /// MenuBarExtra grows its window but never shrinks it. Without this, the panel floats in empty space
@@ -714,7 +715,14 @@ struct Panel: View {
             .padding(24)
         } else {
             VStack(spacing: 0) {
-                if model.snap.rows.count > 8 { filterField }
+                if model.snap.rows.count > 8 || !model.filter.isEmpty { filterField }
+                if rows.isEmpty && !model.filter.isEmpty {
+                    VStack(spacing: 6) {
+                        Text("No site matches \u{201C}\(model.filter)\u{201D}").foregroundStyle(.secondary)
+                        Button("Clear Filter") { model.filter = "" }
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, 20)
+                }
                 ScrollView {
                     // No pinned section headers: they move the rows by fractions of a pixel, and the text blurs.
                     LazyVStack(spacing: 2) {
@@ -868,13 +876,17 @@ struct Panel: View {
                 .help("Park Folder")
 
             Menu {
-                Toggle("Serve .test Instead of Herd", isOn: Binding(
-                    get: { model.snap.ownsTest },
-                    set: { on in
-                        if on { model.run("Taking over .test") { try $0.takeover() } }
-                        else { model.run("Giving .test back") { try $0.runAsAdmin($0.handbackScript()) } }
-                    }
-                ))
+                // Only with Herd on the Mac, and off when .test is the main TLD: the same rules as in Settings.
+                if model.snap.herdFound {
+                    Toggle("Serve .test Instead of Herd", isOn: Binding(
+                        get: { model.snap.ownsTest },
+                        set: { on in
+                            if on { model.run("Taking over .test") { try $0.takeover() } }
+                            else { model.run("Giving .test back") { try $0.runAsAdmin($0.handbackScript()) } }
+                        }
+                    ))
+                    .disabled(model.snap.tld == Corral.sharedTLD)
+                }
                 if model.snap.herdFound {
                     Button("Move from Herd…", action: model.moveFromHerd).disabled(model.busy != nil)
                 }
@@ -883,7 +895,7 @@ struct Panel: View {
                 }
                 Button("Restart Services") { model.run("Restarting") { c in c.stop(); try c.start() } }
                     .disabled(!model.running)
-                Button("Open Config Folder") { NSWorkspace.shared.open(URL(fileURLWithPath: model.snap.home)) }
+                Button("Show Config Folder in Finder") { NSWorkspace.shared.open(URL(fileURLWithPath: model.snap.home)) }
                 Divider()
                 Button("Insights…") { NSApp.activate(); openWindow(id: "insights") }.keyboardShortcut("i")
                 Button("Settings…") { NSApp.activate(); openSettings() }.keyboardShortcut(",")
@@ -1036,7 +1048,7 @@ struct SiteRow: View {
             }
         }
         if site.proxy == nil && Corral.needsWordPressSetup(site.path) {
-            Button("Set Up WordPress…") {
+            Button("Set Up WordPress") { // no "…": it starts at once, with no dialog
                 model.run("Setting up \(site.name)") { c in
                     try c.setUpWordPress(site)
                     let wp = c.config.wordpress
@@ -1048,7 +1060,7 @@ struct SiteRow: View {
             Button("Import Database…") { importDump(site) }
         }
         if site.proxy == nil && Corral.needsLaravelSetup(site.path) {
-            Button("Set Up Laravel…") {
+            Button("Set Up Laravel") {
                 model.run("Setting up \(site.name)") { c in
                     try c.setUpLaravel(site)
                     Task { @MainActor in model.notice = "\(row.host) is set up: dependencies, .env, key, database, migrations." }
@@ -1056,7 +1068,7 @@ struct SiteRow: View {
             }
         }
         if site.proxy == nil {
-            Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: site.path)]) }
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: site.path)]) }
         }
         Divider()
         Toggle("Serve over HTTPS", isOn: Binding(

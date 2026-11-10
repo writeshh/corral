@@ -13,7 +13,7 @@ struct Config: Codable, Equatable {
     var fpm: [String: FpmPool] = [:]     // PHP version -> pool settings, when not the defaults
     var dumps = false                    // send dump() and dd() output to the Insights window
     var queries = false                  // record the SQL queries of each request for the Insights window
-    var wordpress = WordPressDefaults()  // the values that `corral wp:setup` and "Set Up WordPress…" use
+    var wordpress = WordPressDefaults()  // the values that `corral wp:setup` and "Set Up WordPress" use
     var mail = false                     // catch mail on 127.0.0.1:2525 while the app runs
     var xdebug = XdebugSettings()        // second PHP-FPM pool with Xdebug, for requests that ask for a debug session
 

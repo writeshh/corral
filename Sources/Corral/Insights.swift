@@ -325,7 +325,7 @@ struct LogsView: View {
                     ForEach(files, id: \.self) { Text(($0 as NSString).abbreviatingWithTildeInPath).tag($0) }
                 }
                 Button("Clear", action: log.clear).disabled(log.text.isEmpty).help("Hide the lines up to now. The file does not change.")
-                Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: log.file)]) }.disabled(log.file.isEmpty)
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: log.file)]) }.disabled(log.file.isEmpty)
             }
             .padding(10)
             Divider()

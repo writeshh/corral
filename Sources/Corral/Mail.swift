@@ -340,7 +340,7 @@ struct MailView: View {
                     .contextMenu {
                         Button("Preview") { preview.url = m.url }
                         Button("Open in Mail") { NSWorkspace.shared.open(m.url) }
-                        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([m.url]) }
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([m.url]) }
                         Divider()
                         Button("Move to Trash") { mail.delete(m) }
                     }

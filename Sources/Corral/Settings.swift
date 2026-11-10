@@ -111,24 +111,26 @@ struct GeneralTab: View {
             } footer: {
                 Footer("Each site answers <site>.<TLD> for every TLD. A site can add more names with \"domains\" in .corral.json. Corral asks for your password to update /etc/resolver.")
             }
-            Section {
-                Toggle("Serve .test instead of Herd", isOn: Binding(
-                    get: { model.snap.ownsTest },
-                    set: { on in
-                        if on { model.run("Taking over .test") { try $0.takeover() } }
-                        else { model.run("Giving .test back") { try $0.runAsAdmin($0.handbackScript()) } }
-                    }
-                ))
-            } footer: {
-                Footer("Quit Herd first. Herd takes .test back while it runs.")
+            if model.snap.herdFound { // the same rules as the switch in the panel's menu
+                Section {
+                    Toggle("Serve .test instead of Herd", isOn: Binding(
+                        get: { model.snap.ownsTest },
+                        set: { on in
+                            if on { model.run("Taking over .test") { try $0.takeover() } }
+                            else { model.run("Giving .test back") { try $0.runAsAdmin($0.handbackScript()) } }
+                        }
+                    ))
+                } footer: {
+                    Footer("Quit Herd first. Herd takes .test back while it runs.")
+                }
+                .disabled(model.snap.tld == Corral.sharedTLD)
             }
-            .disabled(model.snap.tld == Corral.sharedTLD)
             Section {
                 LabeledContent("Services") {
                     Button("Restart") { model.run("Restarting") { c in c.stop(); try c.start() } }.disabled(!model.running)
                 }
-                LabeledContent("Configuration") {
-                    Button("Open Folder") { NSWorkspace.shared.open(URL(fileURLWithPath: model.snap.home)) }
+                LabeledContent("Config folder") {
+                    Button("Show in Finder") { NSWorkspace.shared.open(URL(fileURLWithPath: model.snap.home)) }
                 }
             }
         }
