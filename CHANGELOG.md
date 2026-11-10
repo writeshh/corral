@@ -6,6 +6,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-10
+
 ### Added
 
 - The PHP builds include Xdebug 3.5.3 as a shared extension (`xdebug.so` next to `php`). PHP loads it only when `php.ini` asks for it.
@@ -161,7 +163,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The menu bar panel shrinks after a banner closes, and the site list text is sharp.
 - Port numbers show without a thousands separator, for example 2525.
 
-[Unreleased]: https://github.com/writeshh/corral/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/writeshh/corral/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/writeshh/corral/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/writeshh/corral/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/writeshh/corral/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/writeshh/corral/compare/v0.3.0...v0.3.1
