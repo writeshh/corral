@@ -670,10 +670,16 @@ struct Panel: View {
                 Image(nsImage: CorralApp.appIcon(size: 30))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Corral").font(.headline)
-                    Text(model.busy.map { "\($0)…" } ?? model.completed ?? (model.running ? "Running" : "Stopped"))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.opacity)
+                    // One dot sums up the services: green all run, orange some stopped, gray all stopped.
+                    HStack(spacing: 5) {
+                        if model.busy == nil && model.completed == nil {
+                            Circle().fill(statusColor).frame(width: 7, height: 7).accessibilityHidden(true)
+                        }
+                        Text(model.busy.map { "\($0)…" } ?? model.completed ?? statusText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .contentTransition(.opacity)
+                    }
                 }
                 Spacer()
                 if model.busy != nil { ProgressView().controlSize(.small) }
@@ -683,13 +689,25 @@ struct Panel: View {
                     .controlSize(.regular)
                     .disabled(model.busy != nil)
             }
-            HStack(spacing: 6) {
+            HStack(spacing: 12) {
                 ForEach(model.snap.services, id: \.name) { service in
-                    ServiceChip(name: service.name, up: service.up)
+                    ServiceChip(name: service.name, up: service.up, expected: model.running)
                 }
             }
+            .padding(.leading, 2)
         }
         .padding([.horizontal, .top], 14)
+    }
+
+    private var stopped: Int { model.snap.services.filter { !$0.up }.count }
+
+    private var statusColor: Color {
+        !model.running ? Color.secondary.opacity(0.5) : stopped > 0 ? .orange : .green
+    }
+
+    private var statusText: String {
+        guard model.running else { return "Stopped" }
+        return stopped == 0 ? "Running" : "Running, \(stopped) of \(model.snap.services.count) stopped"
     }
 
     private func banner(_ message: String, isError: Bool = true) -> some View {
@@ -975,18 +993,20 @@ extension Banner where Actions == EmptyView {
     }
 }
 
+/// One service as a quiet dot and name, with no pill around it: four pills read as noise. A service that should
+/// run but does not turns orange, so the one problem is the one thing that stands out.
 struct ServiceChip: View {
     let name: String
     let up: Bool
+    var expected = true
 
     var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(up ? Color.green : Color.secondary.opacity(0.5)).frame(width: 6, height: 6)
-            Text(name).font(.caption).foregroundStyle(up ? .primary : .secondary)
+        let problem = expected && !up
+        HStack(spacing: 4) {
+            Circle().fill(up ? Color.green : problem ? Color.orange : Color.secondary.opacity(0.5)).frame(width: 5, height: 5)
+            Text(name).font(.caption.weight(problem ? .semibold : .regular))
+                .foregroundStyle(problem ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(.quaternary.opacity(0.6), in: .capsule)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name), \(up ? "running" : "stopped")")
     }
