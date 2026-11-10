@@ -102,9 +102,9 @@ struct GeneralTab: View {
             Section {
                 TextField("Main TLD", text: $domains.tld)
                 TextField("Extra TLDs", text: $domains.aliases, prompt: Text("internal"))
-                LabeledContent("") {
-                    Button("Apply", action: applyDomains)
-                        .disabled(model.busy != nil || (domains.tld == model.snap.tld && domains.aliases == model.snap.aliases.joined(separator: ", ")))
+                let unchanged = domains.tld == model.snap.tld && domains.aliases == model.snap.aliases.joined(separator: ", ")
+                LabeledContent(unchanged ? "No changes" : "Changes not applied") {
+                    Button("Apply", action: applyDomains).disabled(model.busy != nil || unchanged)
                 }
             } header: {
                 Text("Domains")
@@ -397,18 +397,21 @@ struct XdebugSection: View {
     var body: some View {
         Section {
             Toggle("Debug pool (Xdebug)", isOn: $draft.enabled)
-            TextField("Mode", text: $draft.mode, prompt: Text("debug,develop"))
-            TextField("Client host", text: $draft.host, prompt: Text("127.0.0.1"))
-            TextField("Client port", text: $draft.port, prompt: Text("9003"))
+            Group { // the pool's settings do nothing while the pool is off
+                TextField("Mode", text: $draft.mode, prompt: Text("debug,develop"))
+                TextField("Client host", text: $draft.host, prompt: Text("127.0.0.1"))
+                TextField("Client port", text: $draft.port, prompt: Text("9003"))
+            }
+            .disabled(!draft.enabled)
             Picker("Start a session", selection: $draft.start) {
                 Text("For every request in the pool").tag("yes")
                 Text("Only with XDEBUG_TRIGGER").tag("trigger")
             }
-            .disabled(draft.profile)
+            .disabled(!draft.enabled || draft.profile)
             Toggle("Profiler (XDEBUG_PROFILE)", isOn: $draft.profile).disabled(!draft.enabled)
             Toggle("Use the pool while the editor listens", isOn: $draft.detect).disabled(!draft.enabled)
                 .help("While a program listens on the client port on this Mac, every PHP request runs with Xdebug, without a cookie.")
-            LabeledContent("") {
+            LabeledContent(draft.settings() == model.snap.xdebug ? "No changes" : "Changes not applied") {
                 HStack {
                     Button("Revert") { draft.load(model.snap.xdebug) }
                     Button("Apply", action: apply)
@@ -440,6 +443,7 @@ struct XdebugSection: View {
 }
 
 /// Text field values for the "add proxy" row. @State is a macro that the Command Line Tools cannot expand.
+@MainActor
 final class ProxyDraft: ObservableObject {
     @Published var name = ""
     @Published var url = ""
@@ -485,7 +489,7 @@ struct ToolsTab: View {
                 TextField("Admin email", text: $wp.values.adminEmail, prompt: Text("admin@<site>.\(model.snap.tld)"))
                 TextField("Locale", text: $wp.values.locale, prompt: Text("en_US"))
                 TextField("Table prefix", text: $wp.values.tablePrefix, prompt: Text("wp_"))
-                LabeledContent("") {
+                LabeledContent(wp.values == model.snap.wordpress ? "No changes" : "Changes not applied") {
                     HStack {
                         Button("Revert") { wp.values = model.snap.wordpress }
                         Button("Apply", action: applyWordPress)
@@ -551,8 +555,8 @@ struct SitesTab: View {
                     }
                 }
                 HStack {
-                    TextField("Name", text: $draft.name).frame(width: 120)
-                    TextField("http://127.0.0.1:3000", text: $draft.url)
+                    TextField("Proxy name", text: $draft.name, prompt: Text("name")).frame(width: 120)
+                    TextField("Proxy URL", text: $draft.url, prompt: Text("http://127.0.0.1:3000"))
                     Button("Add", action: addProxy).disabled(draft.name.isEmpty || draft.url.isEmpty)
                 }
                 .labelsHidden()
@@ -574,9 +578,13 @@ struct SitesTab: View {
             return
         }
         let name = Corral.slug(draft.name), target = draft.url
-        model.run("Adding proxy") { c in c.config.proxies[name] = target; try c.apply() }
-        draft.name = ""
-        draft.url = ""
+        let draft = draft
+        model.run("Adding proxy \(name)") { c in
+            c.config.proxies[name] = target
+            try c.apply()
+            // Clear the fields only after the proxy is saved: after an error, the user fixes the text, not types it again.
+            Task { @MainActor in draft.name = ""; draft.url = "" }
+        }
     }
 }
 
@@ -663,7 +671,7 @@ struct AboutTab: View {
                 LabeledContent("WP-CLI", value: "MIT")
                 LabeledContent("Laravel Installer", value: "MIT")
                 if let licenses {
-                    Button("Show Licence Files") { NSWorkspace.shared.open(URL(fileURLWithPath: licenses)) }
+                    Button("Show License Files") { NSWorkspace.shared.open(URL(fileURLWithPath: licenses)) }
                 }
             } header: {
                 Text("Bundled software")

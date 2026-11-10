@@ -81,6 +81,8 @@ final class Insights: ObservableObject {
 /// The selected log file and what the window shows of it.
 @MainActor
 final class LogState: ObservableObject {
+    /// The view shows the last line. Not @Published: it changes while the user scrolls, and must not redraw.
+    var atEnd = true
     // Saved, so the choice survives a tab switch (SwiftUI makes a new LogsView) and a restart.
     @Published var site = UserDefaults.standard.string(forKey: "logSite") ?? "" { // "" = Corral's own logs only
         didSet { UserDefaults.standard.set(site, forKey: "logSite") }
@@ -320,6 +322,7 @@ struct LogsView: View {
                 }
                 Toggle(isOn: $followBrowser) { Image(systemName: "safari") }
                     .toggleStyle(.button)
+                    .accessibilityLabel("Follow the browser")
                     .help("Show the logs of the site in your browser. Safari, Chrome, Brave, Edge, Arc, Dia and Vivaldi. macOS asks once to let Corral control the browser.")
                 Picker("File", selection: $log.file) {
                     ForEach(files, id: \.self) { Text(($0 as NSString).abbreviatingWithTildeInPath).tag($0) }
@@ -334,17 +337,24 @@ struct LogsView: View {
                                        description: Text("New lines show here while the file grows."))
                     .frame(maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        Text(Self.highlight(log.text))
-                            .font(.system(.callout, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                        Color.clear.frame(height: 1).id("end")
+                // New lines scroll into view only while the last line shows. A user who scrolled up to read stays there.
+                GeometryReader { viewport in
+                    let height = viewport.size.height
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            Text(Self.highlight(log.text))
+                                .font(.system(.callout, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                            Color.clear.frame(height: 1).id("end")
+                                .onGeometryChange(for: Bool.self) { $0.frame(in: .named("log")).minY <= height + 40 } action: { log.atEnd = $0 }
+                        }
+                        .coordinateSpace(name: "log")
+                        .onAppear { proxy.scrollTo("end") }
+                        .onChange(of: log.text) { if log.atEnd { proxy.scrollTo("end") } }
+                        .onChange(of: log.file) { log.atEnd = true; proxy.scrollTo("end") }
                     }
-                    .onAppear { proxy.scrollTo("end") }
-                    .onChange(of: log.text) { proxy.scrollTo("end") }
                 }
             }
         }

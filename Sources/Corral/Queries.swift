@@ -244,19 +244,34 @@ struct QueriesView: View {
         .onDisappear(perform: log.unfollow)
     }
 
+    /// Two lines: what the request was and how it ended, then what it did. On one line, the URL shrank to nothing.
     private func header(_ r: QueryRequest) -> some View {
-        HStack(spacing: 6) {
-            Text(r.method).font(.caption2.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 1).background(.quaternary, in: .capsule)
-            Text(r.url).font(.caption.weight(.semibold)).lineLimit(1).truncationMode(.middle)
-            Spacer()
-            if r.repeated > 0 {
-                Text("\(r.repeated) repeated").font(.caption).foregroundStyle(.orange)
-                    .help("Queries with the same SQL ran more than once. This is often an N+1 problem.")
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(r.method).font(.caption2.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 1).background(.quaternary, in: .capsule)
+                if let status = r.status { statusBadge(status) }
+                Text(r.url).font(.caption.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 8)
+                Text(Date(timeIntervalSince1970: r.time).formatted(date: .omitted, time: .standard)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
-            Text(r.counts)
-                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            Text(Date(timeIntervalSince1970: r.time).formatted(date: .omitted, time: .standard)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text(r.counts).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                if r.repeated > 0 {
+                    Text("\(r.repeated) repeated").font(.caption).foregroundStyle(.orange)
+                        .help("Queries with the same SQL ran more than once. This is often an N+1 problem.")
+                }
+            }
         }
+    }
+
+    /// A failed request must not look like a good one: 4xx orange, 5xx red, others quiet.
+    private func statusBadge(_ status: Int) -> some View {
+        let color: Color = status >= 500 ? .red : status >= 400 ? .orange : .secondary
+        return Text(String(status)).font(.caption2.weight(.bold).monospacedDigit())
+            .foregroundStyle(status >= 400 ? .white : color)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(status >= 400 ? AnyShapeStyle(color) : AnyShapeStyle(.quaternary), in: .capsule)
+            .accessibilityLabel("Status \(status)")
     }
 
     @ViewBuilder private func details(_ r: QueryRequest) -> some View {

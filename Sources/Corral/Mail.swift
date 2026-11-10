@@ -323,31 +323,45 @@ struct MailView: View {
                     : "Turn on \"Catch mail\" first. Then the mail that your sites send shows here."))
                     .frame(maxHeight: .infinity)
             } else {
-                List(mail.messages) { m in
-                    Button { preview.url = m.url } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text(m.subject).font(.body.weight(.medium)).lineLimit(1)
-                                Spacer()
-                                Text(m.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Text("\(m.from) → \(m.to)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            if !m.inbox.isEmpty { Text(m.inbox).font(.caption2).foregroundStyle(.tint) }
+                // Like Finder: click selects, arrows move, Space previews, Delete moves to the Trash,
+                // and a double-click or Return opens the preview.
+                List(mail.messages, selection: $preview.selection) { m in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text(m.subject).font(.body.weight(.medium)).lineLimit(1)
+                            Spacer()
+                            Text(m.date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
                         }
-                        .contentShape(.rect)
+                        Text("\(m.from) → \(m.to)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        if !m.inbox.isEmpty { Text(m.inbox).font(.caption2).foregroundStyle(.tint) }
                     }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button("Preview") { preview.url = m.url }
-                        Button("Open in Mail") { NSWorkspace.shared.open(m.url) }
-                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([m.url]) }
-                        Divider()
-                        Button("Move to Trash") { mail.delete(m) }
-                    }
+                    .tag(m.url)
                 }
+                .contextMenu(forSelectionType: URL.self) { urls in
+                    if let url = urls.first {
+                        Button("Preview") { preview.url = url }
+                        Button("Open in Mail") { NSWorkspace.shared.open(url) }
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(Array(urls)) }
+                        Divider()
+                        Button("Move to Trash") { trash(urls) }
+                    }
+                } primaryAction: { urls in
+                    preview.url = urls.first
+                }
+                .onKeyPress(.space) {
+                    guard let url = preview.selection else { return .ignored }
+                    preview.url = preview.url == nil ? url : nil
+                    return .handled
+                }
+                .onDeleteCommand { if let url = preview.selection { trash([url]) } }
             }
         }
         .quickLookPreview($preview.url)
+    }
+
+    private func trash(_ urls: Set<URL>) {
+        for m in mail.messages where urls.contains(m.url) { mail.delete(m) }
+        preview.selection = nil
     }
 
     private func setMail(_ on: Bool) {
@@ -357,4 +371,7 @@ struct MailView: View {
 }
 
 /// The message that Quick Look shows. @State is a macro that the Command Line Tools cannot expand.
-final class MailPreview: ObservableObject { @Published var url: URL? }
+final class MailPreview: ObservableObject {
+    @Published var url: URL?
+    @Published var selection: URL?
+}
