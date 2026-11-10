@@ -418,6 +418,22 @@ final class Model: ObservableObject {
             try c.apply()
         }
     }
+
+    /// Like `corral link` in a folder: serves one project as <folder>.<tld>.
+    func link() {
+        NSApp.activate()
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Link"
+        panel.message = "Corral serves the folder as <folder>.\(snap.tld)."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let name = Corral.slug(url.lastPathComponent)
+        run("Linking \(name)") { c in
+            c.config.links[name] = url.path
+            try c.apply()
+        }
+    }
 }
 
 struct CorralApp: App {
@@ -665,6 +681,10 @@ struct Panel: View {
                detail: model.snap.missing == [Corral.sharedTLD] && Corral.herdIsRunning
                    ? "Herd serves .test. Quit Herd, then set up."
                    : "\(model.snap.missing.map { "." + $0 }.joined(separator: ", ")) names do not resolve yet.") {
+            // A message that says "quit Herd" needs a button that does it.
+            if model.snap.missing == [Corral.sharedTLD] && Corral.herdIsRunning {
+                Button("Quit Herd") { model.run("Quitting Herd") { _ in try Corral.quitHerd() } }.disabled(model.busy != nil)
+            }
             Button("Set Up…") { model.run("Setting up") { try $0.install() } }.disabled(model.busy != nil)
         }
         .padding([.horizontal, .top], 14)

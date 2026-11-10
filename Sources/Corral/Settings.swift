@@ -423,7 +423,7 @@ struct XdebugSection: View {
 
     private var footer: String {
         let using = model.snap.xdebugBuilds.isEmpty
-            ? "No PHP build in use has Xdebug. Click \"Get Xdebug\" or \"Update\" above."
+            ? "No PHP build in use has Xdebug. Click \"Get Xdebug\" or \"Update to …\" next to a version above."
             : "Debug pool for PHP \(model.snap.xdebugBuilds.joined(separator: ", "))."
         return "A request with an XDEBUG_SESSION or XDEBUG_TRIGGER cookie or query argument runs in a second PHP-FPM pool that has Xdebug. Other requests run without it and stay fast. With the profiler on, XDEBUG_PROFILE also uses the pool and writes a cachegrind file (see Insights > Profiles), and each trigger starts only its own mode. \(using)"
     }
@@ -521,14 +521,14 @@ struct SitesTab: View {
                         remove("Stop serving \(dir)") { c in c.config.parked.removeAll { $0 == dir } }
                     }
                 }
-                Button("Add Folder…", action: model.park)
+                Button("Park Folder…", action: model.park)
             } header: {
                 Text("Parked folders")
             } footer: {
                 Footer("Each subfolder is a site.")
             }
             Section("Links") {
-                if model.snap.links.isEmpty { Text("Run corral link in a project folder.").foregroundStyle(.secondary) }
+                if model.snap.links.isEmpty { Text("No linked folders. A link serves one project folder outside the parked folders.").foregroundStyle(.secondary) }
                 ForEach(model.snap.links, id: \.name) { link in
                     LabeledContent {
                         remove("Remove link \(link.name)") { c in c.config.links[link.name] = nil }
@@ -537,6 +537,7 @@ struct SitesTab: View {
                         Text((link.path as NSString).abbreviatingWithTildeInPath)
                     }
                 }
+                Button("Link Folder…", action: model.link)
             }
             Section("Proxies") {
                 ForEach(model.snap.proxies, id: \.name) { proxy in
