@@ -19,6 +19,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Panel rows are one line, with a tile for the site type: L for Laravel, W for WordPress, an arrow for a proxy, </> for other PHP sites. About 10 sites fit instead of 6. The path is in the tooltip, and only a pinned PHP version shows.
+- The panel header sums up the services with one colored dot and says how many stopped. Services show as a dot and a name, and a stopped one turns orange.
+- Requests reads as a table: method and status have fixed columns, so the URLs line up.
 - Mail in Insights shows the sending site as a tag, and times such as "2 min ago" for today's mail.
 - Mail and profiles go to the Trash instead of being deleted. "Clear" now only clears a view. The buttons that remove files say "Move All to Trash".
 - "Remove" in Settings > PHP is "Remove…" and asks first. The alert names the sites that use the version, and the version they switch to.
