@@ -6,6 +6,20 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A main window with a sidebar: Sites, and the Insights views (Dumps, Requests, Profiles, Logs, Mail). "Open Corral" (⌘O) in the menu bar opens it.
+- The site list shows the PHP version and the folder of each site.
+- An app menu while the main window is open. The Services menu starts, stops and restarts the services and sets the global PHP version. The View menu changes the view (⌘1 to ⌘6).
+
+### Changed
+
+- The menu bar icon opens a quick menu: the status, three buttons (Restart, Park Folder, Config), and the commands. The site list and its filter moved to the main window.
+- The Insights window is now part of the main window. ⌘I opens the Insights view that you used last.
+- The quick menu header has a quiet stop button while the services run, and a Start button when they are stopped. It names a stopped service in yellow. The row of service names is gone.
+- Status colors are separate from the orange accent: teal for running, yellow for a stopped service.
+- Site type tiles have a neutral background, and only the letter or symbol has a color.
+
 ## [0.8.0] - 2026-11-10
 
 ### Added

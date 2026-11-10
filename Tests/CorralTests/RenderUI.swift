@@ -76,7 +76,8 @@ func renderUI() async throws {
     try await Task.sleep(for: .seconds(1.5)) // the snapshot loads on the work queue and arrives on the main actor
 
     let screens: [(String, CGFloat, CGFloat?, AnyView)] = [
-        ("panel", 360, nil, AnyView(Panel(model: model))),
+        ("quick-menu", 280, nil, AnyView(Panel(model: model))),
+        ("main-sites", 720, 460, AnyView(SitesView(model: model))),
         ("settings-general", 580, 640, AnyView(GeneralTab(model: model))),
         ("settings-php", 580, 1400, AnyView(PHPTab(model: model))),
         ("settings-tools", 580, 760, AnyView(ToolsTab(model: model))),

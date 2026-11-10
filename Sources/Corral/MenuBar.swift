@@ -450,6 +450,28 @@ final class Model: ObservableObject {
     }
 }
 
+extension Model {
+    /// Services that must run but do not. Empty while Corral is stopped.
+    var stoppedServices: [String] { running ? snap.services.filter { !$0.up }.map(\.name) : [] }
+
+    /// One line for the quick menu header and the sidebar: all run, which one stopped, or stopped.
+    var statusText: String {
+        guard running else { return "Stopped" }
+        let stopped = stoppedServices
+        if stopped.isEmpty { return "Running · \(snap.services.count) services" }
+        return stopped.count == 1 ? "\(stopped[0]) stopped" : "\(stopped.count) services stopped"
+    }
+
+    var statusColor: Color { !running ? Color.secondary.opacity(0.5) : stoppedServices.isEmpty ? .success : .warning }
+
+    /// Each service with its state, for the tooltip of the status line.
+    var serviceList: String { snap.services.map { "\($0.name): \($0.up ? "running" : "stopped")" }.joined(separator: "\n") }
+
+    func restartServices() { run("Restarting") { c in c.stop(); try c.start() } }
+
+    func showConfigFolder() { NSWorkspace.shared.open(URL(fileURLWithPath: snap.home)) }
+}
+
 struct CorralApp: App {
     @StateObject private var model = Model()
     @StateObject private var insights = Insights()
@@ -481,7 +503,8 @@ struct CorralApp: App {
 
         Settings { SettingsView(model: model) }
 
-        Window("Insights", id: "insights") { InsightsView(model: model, insights: insights, mail: mail) }
+        Window("Corral", id: "main") { MainView(model: model, insights: insights, mail: mail) }
+            .commands { AppCommands(model: model) }
     }
 
     /// The app icon's mark without its tile, for the menu bar: the Hex C, its stacked outlines and the orange site.
@@ -542,7 +565,7 @@ struct CorralApp: App {
     }
 }
 
-/// Corral is a menu bar app. It shows in the Dock and in ⌘-Tab while Settings or Insights is open,
+/// Corral is a menu bar app. It shows in the Dock and in ⌘-Tab while the main window or Settings is open,
 /// or all the time with "Show Corral in the Dock". The menu bar panel cannot become main, so it does not count.
 @MainActor enum Dock {
     static func update(closing: ObjectIdentifier? = nil) {
@@ -569,66 +592,42 @@ struct CorralApp: App {
     }
 }
 
-/// The panel's filter. A SwiftUI TextField made macOS password AutoFill (SafariPlatformSupport) prepare its suggestion
-/// window when the panel opened, and that window could show empty in front of the panel. AutoFill skips search fields.
-/// The search field's own bezel and buttons are off: the panel draws the icon, the clear button and the background.
-struct FilterField: NSViewRepresentable {
-    @Binding var text: String
-    var onSubmit: () -> Void = {}
-
-    func makeNSView(context: Context) -> NSSearchField {
-        let field = NSSearchField()
-        field.placeholderString = "Filter sites"
-        field.isBordered = false
-        field.isBezeled = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        if let cell = field.cell as? NSSearchFieldCell { cell.searchButtonCell = nil; cell.cancelButtonCell = nil }
-        field.delegate = context.coordinator
-        return field
-    }
-
-    func updateNSView(_ field: NSSearchField, context: Context) {
-        if field.stringValue != text { field.stringValue = text }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text, onSubmit: onSubmit) }
-
-    @MainActor final class Coordinator: NSObject, NSSearchFieldDelegate {
-        let text: Binding<String>
-        let onSubmit: () -> Void
-        init(text: Binding<String>, onSubmit: @escaping () -> Void) { self.text = text; self.onSubmit = onSubmit }
-        func controlTextDidChange(_ note: Notification) { text.wrappedValue = (note.object as? NSTextField)?.stringValue ?? "" }
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-            guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
-            onSubmit()
-            return true
-        }
-    }
-}
-
 extension Color {
+    /// A color with one value for dark mode and one for light mode, each as 0xRRGGBB.
+    init(dark: UInt32, light: UInt32) {
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            let hex = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+        })
+    }
+
     /// Corral orange (#DF5D09), from the icon. Each mode gets a shade that keeps text readable (4.5:1 or more).
-    static let brand = Color(nsColor: NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? NSColor(srgbRed: 0xF2 / 255, green: 0x76 / 255, blue: 0x2A / 255, alpha: 1)
-            : NSColor(srgbRed: 0xC7 / 255, green: 0x52 / 255, blue: 0x08 / 255, alpha: 1)
-    })
+    /// Orange means "act". It is not a status color.
+    static let brand = Color(dark: 0xF2762A, light: 0xC75208)
+    /// A service is up. A teal, so it does not rely on red against green.
+    static let success = Color(dark: 0x3DD6B5, light: 0x08705D)
+    /// A service stopped. Yellow, so it does not look like the brand.
+    static let warning = Color(dark: 0xF5C542, light: 0x8A6100)
+    static let danger = Color(dark: 0xFF6B5E, light: 0xC0291D)
+    // The glyph colors of the kind tile.
+    static let kindLaravel = Color(dark: 0xFF8A7A, light: 0xB8321F)
+    static let kindWordPress = Color(dark: 0x6FB1FF, light: 0x1F5FB8)
+    static let kindProxy = Color(dark: 0x5FD0C5, light: 0x0B6F66)
+    static let kindPHP = Color(dark: 0xB9B5AB, light: 0x5F5C55)
 }
 
 // MARK: - Panel
 
+/// The quick menu under the menu bar icon: the status, three action tiles, and the commands.
+/// The site list is in the main window.
 struct Panel: View {
     @ObservedObject var model: Model
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     @AppStorage("hideHerdMove") private var hideHerdMove = false
-    @AppStorage("collapsedGroups") private var collapsedGroups = "" // group keys, one per line
+    @AppStorage("mainSection") private var section = "sites"
+    @AppStorage("insightsTab") private var insightsTab = "dumps"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var rows: [Snapshot.Row] {
-        model.filter.isEmpty ? model.snap.rows : model.snap.rows.filter { $0.host.localizedCaseInsensitiveContains(model.filter) }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -637,23 +636,18 @@ struct Panel: View {
             if let notice = model.notice { banner(notice, isError: false) }
             if model.snap.herdFound && !model.snap.ownsTest && !hideHerdMove { herdBanner }
             else if !model.snap.installed { setupBanner }
-            Divider().padding(.top, 10)
-            sites
-            if !model.snap.portless.isEmpty { portlessSection }
-            Divider()
-            footer
+            tiles
+            items
         }
-        .frame(width: 360)
+        .frame(width: 280)
         .tint(.brand)
-        .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0), value: model.snap.rows.map(\.id))
         .animation(reduceMotion ? nil : .spring(duration: 0.3, bounce: 0), value: model.error)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fit(height: $0) }
         .onAppear { model.refresh() }
-        .onDisappear { model.filter = "" } // a filter left from last time would make sites look missing
     }
 
     /// MenuBarExtra grows its window but never shrinks it. Without this, the panel floats in empty space
-    /// after a banner closes or the filter hides sites. The panel is the key window that cannot become main.
+    /// after a banner closes. The panel is the key window that cannot become main.
     private func fit(height: CGFloat) {
         guard let window = NSApp.keyWindow, !window.canBecomeMain else { return }
         var frame = window.frame
@@ -665,54 +659,47 @@ struct Panel: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Image(nsImage: CorralApp.appIcon(size: 30))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Corral").font(.headline)
-                    // One dot sums up the services: green all run, orange some stopped, gray all stopped.
-                    HStack(spacing: 5) {
-                        if model.busy == nil && model.completed == nil {
-                            Circle().fill(statusColor).frame(width: 7, height: 7).accessibilityHidden(true)
-                        }
-                        Text(model.busy.map { "\($0)…" } ?? model.completed ?? statusText)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .contentTransition(.opacity)
+        // A stopped service is the one thing that stands out: its name, in the warning color.
+        let warn = model.busy == nil && model.completed == nil && !model.stoppedServices.isEmpty
+        return HStack(spacing: 8) {
+            Image(nsImage: CorralApp.appIcon(size: 32))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Corral").font(.headline)
+                HStack(spacing: 6) {
+                    if model.busy != nil {
+                        ProgressView().controlSize(.mini)
+                    } else if model.completed == nil {
+                        Circle().fill(model.statusColor).frame(width: 7, height: 7).accessibilityHidden(true)
                     }
+                    Text(model.busy.map { "\($0)…" } ?? model.completed ?? model.statusText)
+                        .font(.subheadline.weight(warn ? .semibold : .regular))
+                        .foregroundStyle(warn ? AnyShapeStyle(Color.warning) : AnyShapeStyle(.secondary))
+                        .lineLimit(2)
+                        .contentTransition(.opacity)
                 }
-                Spacer()
-                if model.busy != nil { ProgressView().controlSize(.small) }
-                Button(model.running ? "Stop" : "Start", action: model.toggleServices)
+                .help(model.serviceList)
+            }
+            Spacer(minLength: 8)
+            // Stop is rare, so it is quiet. Start is what a stopped Corral waits for, so it gets the accent.
+            if model.running {
+                Button(action: model.toggleServices) { Image(systemName: "power") }
+                    .buttonStyle(.borderless)
+                    .tint(.primary)
+                    .help("Stop Services")
+                    .accessibilityLabel("Stop Services")
+                    .disabled(model.busy != nil)
+            } else {
+                Button("Start", action: model.toggleServices)
                     .buttonStyle(.borderedProminent)
-                    .tint(model.running ? .secondary : .brand)
-                    .controlSize(.regular)
                     .disabled(model.busy != nil)
             }
-            HStack(spacing: 12) {
-                ForEach(model.snap.services, id: \.name) { service in
-                    ServiceChip(name: service.name, up: service.up, expected: model.running)
-                }
-            }
-            .padding(.leading, 2)
         }
-        .padding([.horizontal, .top], 14)
-    }
-
-    private var stopped: Int { model.snap.services.filter { !$0.up }.count }
-
-    private var statusColor: Color {
-        !model.running ? Color.secondary.opacity(0.5) : stopped > 0 ? .orange : .green
-    }
-
-    private var statusText: String {
-        guard model.running else { return "Stopped" }
-        return stopped == 0 ? "Running" : "Running, \(stopped) of \(model.snap.services.count) stopped"
+        .padding([.horizontal, .top], 12)
     }
 
     private func banner(_ message: String, isError: Bool = true) -> some View {
         Banner(error: isError, title: message, dismiss: { if isError { model.error = nil } else { model.notice = nil } })
-            .padding([.horizontal, .top], 14)
+            .padding([.horizontal, .top], 12)
             .transition(.opacity)
     }
 
@@ -727,232 +714,138 @@ struct Panel: View {
             }
             Button("Set Up…") { model.run("Setting up") { try $0.install() } }.disabled(model.busy != nil)
         }
-        .padding([.horizontal, .top], 14)
+        .padding([.horizontal, .top], 12)
     }
 
-    // The More menu keeps "Move from Herd…" after this banner is dismissed.
+    // The menu keeps "Move from Herd…" after this banner is dismissed.
     private var herdBanner: some View {
         Banner(title: "Laravel Herd found", detail: "Move its sites, PHP versions and settings.", dismiss: { hideHerdMove = true }) {
             Button("Move…", action: model.moveFromHerd).disabled(model.busy != nil)
         }
-        .padding([.horizontal, .top], 14)
+        .padding([.horizontal, .top], 12)
     }
 
-    @ViewBuilder private var sites: some View {
-        if model.snap.rows.isEmpty {
-            VStack(spacing: 8) {
-                Image(systemName: "folder.badge.plus").font(.largeTitle).foregroundStyle(.secondary)
-                Text("No sites yet").font(.headline)
-                Text("Add a folder to \(model.snap.parked.first.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "a parked folder"), or park a folder that holds your projects.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Park Folder…", action: model.park).padding(.top, 4)
+    /// The three commands that start at once and that the user starts most from the menu bar.
+    private var tiles: some View {
+        HStack(spacing: 6) {
+            tile("Restart", "arrow.clockwise", action: model.restartServices)
+                .disabled(!model.running || model.busy != nil)
+                .help("Restart Services")
+            tile("Park Folder", "folder.badge.plus", action: model.park)
+            tile("Config", "folder", action: model.showConfigFolder)
+                .help("Show Config Folder in Finder")
+        }
+        .padding([.horizontal, .top], 12)
+    }
+
+    private func tile(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: symbol).font(.body).foregroundStyle(.secondary).frame(height: 16)
+                Text(title).font(.subheadline.weight(.medium)).lineLimit(1)
             }
             .frame(maxWidth: .infinity)
-            .padding(24)
-        } else {
-            VStack(spacing: 0) {
-                if model.snap.rows.count > 8 || !model.filter.isEmpty { filterField }
-                if rows.isEmpty && !model.filter.isEmpty {
-                    VStack(spacing: 6) {
-                        Text("No site matches \u{201C}\(model.filter)\u{201D}").foregroundStyle(.secondary)
-                        Button("Clear Filter") { model.filter = "" }
-                    }
-                    .frame(maxWidth: .infinity).padding(.vertical, 20)
-                }
-                ScrollView {
-                    // No pinned section headers: they move the rows by fractions of a pixel, and the text blurs.
-                    LazyVStack(spacing: 2) {
-                        let groups = self.groups
-                        ForEach(groups, id: \.key) { group in
-                            if groups.count > 1 { groupHeader(group) }
-                            if groups.count == 1 || !isCollapsed(group.key) {
-                                ForEach(group.rows) { row in SiteRow(row: row, model: model) }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 6)
-                }
-                .frame(maxHeight: 320)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// Apps that portless serves. Corral does not serve them, so they get their own short list.
-    private var portlessSection: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Divider().padding(.bottom, 4)
-            Text("portless").font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(.horizontal, 14)
-            ForEach(model.snap.portless) { app in
-                Button { NSWorkspace.shared.open(app.url) } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "bolt.horizontal").foregroundStyle(.secondary).frame(width: 20)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(app.host).font(.body.weight(.medium)).lineLimit(1)
-                            Text("localhost:\(app.port)" + (app.isAlias ? " (alias)" : "")).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 8)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    Button("Open in Browser") { NSWorkspace.shared.open(app.url) }
-                    Button("Copy URL") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(app.url.absoluteString, forType: .string)
-                        model.confirm("Copied \(app.url.absoluteString)")
-                    }
-                }
-                .help("Open \(app.url.absoluteString)")
-            }
-        }
-        .padding(.horizontal, 6)
-        .padding(.bottom, 6)
-    }
-
-    /// Sites under the parked folder that holds them, in parked order. Linked folders and proxies come last.
-    private var groups: [(key: String, title: String, rows: [Snapshot.Row])] {
-        var byKey: [String: [Snapshot.Row]] = [:]
-        for row in rows {
-            let parent = (row.site.path as NSString).deletingLastPathComponent
-            let key = row.site.proxy != nil ? "Proxies" : model.snap.parked.contains(parent) ? parent : "Linked"
-            byKey[key, default: []].append(row)
-        }
-        return (model.snap.parked + ["Linked", "Proxies"]).compactMap { key in
-            byKey[key].map { (key: key, title: key.hasPrefix("/") ? (key as NSString).lastPathComponent : key, rows: $0) }
-        }
-    }
-
-    /// A filter shows every group, so a match never hides in a collapsed one.
-    private func isCollapsed(_ key: String) -> Bool {
-        model.filter.isEmpty && collapsedGroups.split(separator: "\n").contains { $0 == key }
-    }
-
-    private func toggle(_ key: String) {
-        var keys = Set(collapsedGroups.split(separator: "\n").map(String.init))
-        if keys.remove(key) == nil { keys.insert(key) }
-        collapsedGroups = keys.sorted().joined(separator: "\n")
-    }
-
-    private func groupHeader(_ group: (key: String, title: String, rows: [Snapshot.Row])) -> some View {
-        let collapsed = isCollapsed(group.key)
-        return Button { withAnimation(reduceMotion ? nil : .spring(duration: 0.25, bounce: 0)) { toggle(group.key) } } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .rotationEffect(.degrees(collapsed ? 0 : 90))
-                Text(group.title).font(.caption.weight(.semibold))
-                Spacer()
-                Text(String(group.rows.count)).font(.caption.monospacedDigit())
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.vertical, 8)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
-        .disabled(!model.filter.isEmpty)
-        .accessibilityLabel("\(group.title), \(group.rows.count) sites")
-        .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
-        .help(group.key.hasPrefix("/") ? (group.key as NSString).abbreviatingWithTildeInPath : group.title)
+        .buttonStyle(TileStyle())
     }
 
-    /// A quiet search field in the panel's 8 pt container style, not the boxed AppKit text field.
-    private var filterField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            // Return opens the first match: type a few letters, press Return, and the site opens.
-            FilterField(text: $model.filter) { if let first = rows.first { NSWorkspace.shared.open(first.url) } }
-            if !model.filter.isEmpty {
-                Button { model.filter = "" } label: { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("Clear filter")
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(.quaternary.opacity(0.6), in: .rect(cornerRadius: 8))
-        .padding([.horizontal, .top], 10)
-    }
+    private func openMain() { NSApp.activate(); openWindow(id: "main") }
 
-    private var footer: some View {
-        HStack(spacing: 4) {
-            Menu {
-                Picker("Global PHP", selection: Binding(
-                    get: { model.snap.globalPHP ?? "" },
-                    set: { v in model.run("Switching PHP") { c in c.config.php = v; try c.apply() } }
-                )) {
-                    ForEach(model.snap.versions, id: \.self) { Text("PHP \($0)").tag($0) }
-                }
-                .pickerStyle(.inline)
-                let missing = Corral.phpChoices.filter { !model.snap.versions.contains($0) }
-                if !missing.isEmpty {
-                    Divider()
-                    Menu("Install PHP") {
-                        ForEach(missing, id: \.self) { v in
-                            Button("PHP \(v)") { model.run("Installing PHP \(v)") { try $0.installPHP(v) } }
-                        }
-                    }
-                }
-            } label: {
-                Label(model.snap.globalPHP.map { "PHP \($0)" } ?? "No PHP", systemImage: "chevron.left.forwardslash.chevron.right")
+    private var items: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            MenuRow(title: "Open Corral", symbol: "macwindow", shortcut: "⌘O", action: openMain).keyboardShortcut("o")
+            MenuRow(title: "Insights", symbol: "chart.bar", shortcut: "⌘I") { section = insightsTab; openMain() }.keyboardShortcut("i")
+            Menu { GlobalPHPMenu(model: model) } label: {
+                Label(model.snap.globalPHP.map { "Global PHP \($0)" } ?? "No PHP", systemImage: "chevron.left.forwardslash.chevron.right")
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-
-            Spacer()
-
-            Button(action: model.park) { Label("Park Folder", systemImage: "folder.badge.plus") }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .help("Park Folder")
-
-            Menu {
-                // Only with Herd on the Mac, and off when .test is the main TLD: the same rules as in Settings.
-                if model.snap.herdFound {
-                    Toggle("Serve .test Instead of Herd", isOn: Binding(
-                        get: { model.snap.ownsTest },
-                        set: { on in
-                            if on { model.run("Taking over .test") { try $0.takeover() } }
-                            else { model.run("Giving .test back") { try $0.runAsAdmin($0.handbackScript()) } }
-                        }
-                    ))
-                    .disabled(model.snap.tld == Corral.sharedTLD)
+            .tint(.primary) // orange labels fade on the translucent panel over a light window
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            MenuRow(title: "Settings…", symbol: "gearshape", shortcut: "⌘,") { NSApp.activate(); openSettings() }.keyboardShortcut(",")
+            // Only with Herd on the Mac, and off when .test is the main TLD: the same rules as in Settings.
+            if model.snap.herdFound {
+                Divider().padding(.horizontal, 8).padding(.vertical, 4)
+                MenuRow(title: "Serve .test Instead of Herd", symbol: model.snap.ownsTest ? "checkmark.circle.fill" : "circle") {
+                    if model.snap.ownsTest { model.run("Giving .test back") { try $0.runAsAdmin($0.handbackScript()) } }
+                    else { model.run("Taking over .test") { try $0.takeover() } }
                 }
-                if model.snap.herdFound {
-                    Button("Move from Herd…", action: model.moveFromHerd).disabled(model.busy != nil)
-                }
+                .disabled(model.snap.tld == Corral.sharedTLD)
+                .accessibilityValue(model.snap.ownsTest ? "On" : "Off")
+                MenuRow(title: "Move from Herd…", symbol: "arrow.left.arrow.right", action: model.moveFromHerd).disabled(model.busy != nil)
                 if model.snap.ownsTest && FileManager.default.fileExists(atPath: "/Applications/Herd.app") {
-                    Button("Uninstall Herd…", action: model.uninstallHerd).disabled(model.busy != nil)
+                    MenuRow(title: "Uninstall Herd…", symbol: "trash", action: model.uninstallHerd).disabled(model.busy != nil)
                 }
-                Button("Restart Services") { model.run("Restarting") { c in c.stop(); try c.start() } }
-                    .disabled(!model.running)
-                Button("Show Config Folder in Finder") { NSWorkspace.shared.open(URL(fileURLWithPath: model.snap.home)) }
-                Divider()
-                Button("Insights…") { NSApp.activate(); openWindow(id: "insights") }.keyboardShortcut("i")
-                Button("Settings…") { NSApp.activate(); openSettings() }.keyboardShortcut(",")
-                Divider()
-                Button("Quit Corral") { NSApp.terminate(nil) }.keyboardShortcut("q")
-            } label: {
-                Image(systemName: "ellipsis.circle")
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("More")
+            Divider().padding(.horizontal, 8).padding(.vertical, 4)
+            MenuRow(title: "Quit Corral", symbol: "rectangle.portrait.and.arrow.right", shortcut: "⌘Q") { NSApp.terminate(nil) }.keyboardShortcut("q")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .tint(.primary) // orange labels fade on the translucent panel over a light window
+        .padding(6)
+    }
+}
+
+/// The global PHP version as menu content, with the versions that Corral can install. The quick menu and the app menu share it.
+struct GlobalPHPMenu: View {
+    @ObservedObject var model: Model
+
+    var body: some View {
+        Picker("Global PHP", selection: Binding(
+            get: { model.snap.globalPHP ?? "" },
+            set: { v in model.run("Switching PHP") { c in c.config.php = v; try c.apply() } }
+        )) {
+            ForEach(model.snap.versions, id: \.self) { Text("PHP \($0)").tag($0) }
+        }
+        .pickerStyle(.inline)
+        let missing = Corral.phpChoices.filter { !model.snap.versions.contains($0) }
+        if !missing.isEmpty {
+            Divider()
+            Menu("Install PHP") {
+                ForEach(missing, id: \.self) { v in
+                    Button("PHP \(v)") { model.run("Installing PHP \(v)") { try $0.installPHP(v) } }
+                }
+            }
+        }
+    }
+}
+
+/// One command in the quick menu: a symbol, a title, and the shortcut on the right.
+struct MenuRow: View {
+    let title: String
+    let symbol: String
+    var shortcut = ""
+    let action: () -> Void
+    @StateObject private var hover = Hover()
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 16)
+                Text(title).lineLimit(1)
+                Spacer(minLength: 8)
+                Text(shortcut).font(.subheadline).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(.rect)
+        }
+        .buttonStyle(RowStyle(hovering: hover.on && enabled))
+        .opacity(enabled ? 1 : 0.45)
+        .onHover { hover.on = $0 }
+    }
+}
+
+/// An action tile of the quick menu: a quiet fill, stronger on press.
+struct TileStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Color.primary.opacity(configuration.isPressed ? 0.14 : 0.07), in: .rect(cornerRadius: 8))
+            .opacity(enabled ? 1 : 0.45)
     }
 }
 
@@ -970,7 +863,7 @@ struct Banner<Actions: View>: View {
     var body: some View {
         HStack(alignment: detail == nil ? .firstTextBaseline : .center, spacing: 8) {
             Image(systemName: error ? "exclamationmark.triangle.fill" : "info.circle.fill")
-                .foregroundStyle(error ? Color.red : Color.brand)
+                .foregroundStyle(error ? Color.danger : Color.brand)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(detail == nil ? .callout : .callout.weight(.semibold))
                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -983,7 +876,7 @@ struct Banner<Actions: View>: View {
             }
         }
         .padding(10)
-        .background((error ? Color.red : Color.brand).opacity(0.1), in: .rect(cornerRadius: 8))
+        .background((error ? Color.danger : Color.brand).opacity(0.1), in: .rect(cornerRadius: 8))
     }
 }
 
@@ -993,43 +886,24 @@ extension Banner where Actions == EmptyView {
     }
 }
 
-/// One service as a quiet dot and name, with no pill around it: four pills read as noise. A service that should
-/// run but does not turns orange, so the one problem is the one thing that stands out.
-struct ServiceChip: View {
-    let name: String
-    let up: Bool
-    var expected = true
-
-    var body: some View {
-        let problem = expected && !up
-        HStack(spacing: 4) {
-            Circle().fill(up ? Color.green : problem ? Color.orange : Color.secondary.opacity(0.5)).frame(width: 5, height: 5)
-            Text(name).font(.caption.weight(problem ? .semibold : .regular))
-                .foregroundStyle(problem ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name), \(up ? "running" : "stopped")")
-    }
-}
-
 // The Command Line Tools ship no SwiftUIMacros plugin, and @State is a macro in the current SDK.
 // Plain property wrappers (@StateObject, @Published) keep the app buildable without Xcode.
 final class Hover: ObservableObject { @Published var on = false }
 
-/// A small rounded tile for the kind of site: a letter for a framework, a symbol otherwise. The color is
-/// low-key (a tint, not a fill), so a long list stays calm and the names stay the strongest element.
+/// A small rounded tile for the kind of site: a letter for a framework, a symbol otherwise. The ground is
+/// neutral and only the glyph has a color, so a long list stays calm and the names stay the strongest element.
 struct KindTile: View {
     let kind: Snapshot.Kind
 
     var body: some View {
         let (color, mark): (Color, String?) = switch kind {
-        case .laravel: (.red, "L")
-        case .wordpress: (.blue, "W")
-        case .proxy: (.teal, nil)
-        case .php: (.gray, nil)
+        case .laravel: (.kindLaravel, "L")
+        case .wordpress: (.kindWordPress, "W")
+        case .proxy: (.kindProxy, nil)
+        case .php: (.kindPHP, nil)
         }
-        RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .fill(color.opacity(0.16))
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(Color.primary.opacity(0.08))
             .frame(width: 20, height: 20)
             .overlay {
                 if let mark {
@@ -1056,38 +930,46 @@ struct SiteRow: View {
     private var hovering: Bool { hover.on }
 
     var body: some View {
-        // One line for each site: the tile says what it is, the name says where it is. The group header holds the
-        // folder, so the path moves to the tooltip, and twice as many sites fit. Only a pinned PHP version shows:
-        // the footer already shows the global one.
+        // One line for each site: kind, name, lock, then the PHP version and the folder in columns.
+        // The top level domain is quiet, so the eye reads the name first. A pinned PHP version shows as a badge.
+        let dot = row.host.lastIndex(of: ".") ?? row.host.endIndex
         Button { NSWorkspace.shared.open(row.url) } label: {
-            HStack(spacing: 9) {
+            HStack(spacing: 8) {
                 KindTile(kind: row.kind)
-                Text(row.host).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                Text("\(Text(row.host[..<dot]).fontWeight(.medium))\(Text(row.host[dot...]).foregroundStyle(.secondary))")
+                    .lineLimit(1).truncationMode(.middle)
                 if row.secured {
-                    Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.tertiary)
+                    Image(systemName: "lock.fill").font(.caption).foregroundStyle(.secondary)
                         .accessibilityLabel("HTTPS")
                 }
                 Spacer(minLength: 8)
-                if let proxy = row.site.proxy {
-                    Text(proxy.port.map { ":\($0)" } ?? proxy.host ?? "").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Group {
+                    if let pinned = row.isolated {
+                        Text(pinned)
+                            .font(.subheadline.weight(.medium).monospacedDigit())
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(.quaternary, in: .rect(cornerRadius: 4))
+                            .help("PHP version pinned to this site")
+                    } else {
+                        Text(row.php ?? "").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                            .help("Global PHP version")
+                    }
                 }
-                if let pinned = row.isolated {
-                    Text("PHP \(pinned)")
-                        .font(.caption.weight(.medium).monospacedDigit())
-                        .padding(.horizontal, 6).padding(.vertical, 1)
-                        .background(.quaternary, in: .rect(cornerRadius: 4))
-                        .help("PHP version pinned to this site")
-                }
+                .frame(width: 44, alignment: .leading)
+                Text(row.detail).font(.system(.subheadline, design: .monospaced)).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+                    .frame(maxWidth: 260, alignment: .leading)
+                    .layoutPriority(-1)
                 actions.opacity(hovering ? 1 : 0)
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.vertical, 6)
             .contentShape(.rect)
         }
         .buttonStyle(RowStyle(hovering: hovering))
         .onHover { hover.on = $0 }
         .contextMenu { menuItems }
-        .help("Open \(row.url.absoluteString)\n\(row.detail)")
+        .help("Open \(row.url.absoluteString)")
     }
 
     private var actions: some View {

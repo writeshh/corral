@@ -127,42 +127,6 @@ final class LogState: ObservableObject {
     }
 }
 
-struct InsightsView: View {
-    @ObservedObject var model: Model
-    @ObservedObject var insights: Insights
-    @ObservedObject var mail: MailServer
-    @AppStorage("insightsTab") private var tab = "dumps"
-    @StateObject private var log = LogState() // here, not in LogsView, so a tab switch keeps Clear
-
-    var body: some View {
-        VStack(spacing: 0) {
-            switch tab {
-            case "logs": LogsView(model: model, log: log)
-            case "mail": MailView(model: model, mail: mail)
-            case "queries": QueriesView(model: model)
-            case "profiles": ProfilesView(model: model)
-            default: DumpsView(model: model, insights: insights)
-            }
-            StatusLine(model: model) // the dumps and mail switches here change Corral's config, so their errors show here too
-        }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Picker("View", selection: $tab) {
-                    Text("Dumps").tag("dumps")
-                    Text("Requests").tag("queries")
-                    Text("Profiles").tag("profiles")
-                    Text("Logs").tag("logs")
-                    Text("Mail").tag("mail")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-        }
-        .frame(minWidth: 560, minHeight: 420)
-        .tint(.brand)
-    }
-}
-
 extension Corral.Dump {
     /// Colors for the SGR codes that dumpDecoder gives each token type. System colors follow light and dark mode.
     static let colors: [Int: Color] = [31: .blue, 32: .orange, 33: .green, 34: .cyan, 35: .secondary, 36: .purple, 37: .teal, 90: .blue]

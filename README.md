@@ -19,7 +19,7 @@ Corral connects to the internet only to install a PHP version and to look for a 
 - Move from Laravel Herd in one step, or run next to Herd.
 - Change PHP and PHP-FPM settings in a settings window.
 - Debug with Xdebug in a separate PHP-FPM pool. Normal requests run without Xdebug.
-- See `dump()` output, logs, and caught mail in the Insights window. Herd has these features only in Herd Pro.
+- See `dump()` output, logs, and caught mail in Insights. Herd has these features only in Herd Pro.
 - Open at login, and restart a service that stops.
 
 ## Requirements
@@ -105,7 +105,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral mail:links [n]` | Print the links in message `n`, for example a link to verify an email address. |
 | `corral mail:wait [inbox] [--timeout s]` | Wait for the next mail, for example in a test after a sign-up, and print it like `corral mail`. Without an inbox, any new mail counts. It fails after 60 seconds, or after `--timeout`. |
 | `corral mail:attachments [n] [folder]` | Save the attachments of message `n` in a folder (the current folder by default). |
-| `corral mail:use [name]` | Send the mail of a Laravel or WordPress site to Corral, like "Send Mail to Corral" in the panel. |
+| `corral mail:use [name]` | Send the mail of a Laravel or WordPress site to Corral, like "Send Mail to Corral" in the site menu of the main window. |
 | `corral mail:clear` | Delete all caught mail. |
 | `corral tools` | Show the versions of `composer`, `wp`, and `laravel`. See [Bundled tools](#bundled-tools). |
 | `corral tools:update [name]` | Update `composer`, `wp`, or `laravel` (all by default). |
@@ -179,7 +179,7 @@ A browser extension for Xdebug sets the cookie. Other requests use the normal po
 
 You do not need the cookie while your editor listens for Xdebug.
 The menu bar app checks every 2 seconds whether a program listens on the client port (9003) on this Mac, for example PhpStorm after "Start Listening for PHP Debug Connections", or a VS Code debug session.
-While one listens, every PHP request goes to the debug pool, and the panel says so. When the editor stops listening, requests use the normal pool again.
+While one listens, every PHP request goes to the debug pool, and the quick menu says so. When the editor stops listening, requests use the normal pool again.
 Turn this off in Settings > PHP > Xdebug, or with `corral xdebug --detect off`. Corral does not detect an editor on another computer (a client host other than `127.0.0.1`).
 The debug pool reads the same `php.ini` as the normal pool.
 It starts processes on demand, and it has no request time limit, because a session waits at a breakpoint.
@@ -189,7 +189,7 @@ Settings > PHP > Xdebug changes the mode (`debug,develop` by default), the clien
 and whether every request in the pool starts a session or only requests with `XDEBUG_TRIGGER`.
 `corral xdebug` has the options `--mode`, `--host`, `--port`, `--start`, `--profile`, and `--detect`.
 Corral restarts the debug pool after a change.
-The panel shows the debug pool as `php 8.4 debug`, and Corral restarts it if it stops.
+The status line counts the debug pool as a service. Its tooltip shows the pool as `php 8.4 debug`. Corral restarts the pool if it stops.
 
 A PHP build from before Corral had Xdebug has no `xdebug.so`. Update the PHP version in Settings > PHP.
 
@@ -207,26 +207,32 @@ The profiler runs in the debug pool, so this also turns on the debug pool.
 
 ## Menu bar app
 
-Click the Corral icon in the menu bar to open the panel. The panel shows:
+Click the Corral icon in the menu bar to open the quick menu. The quick menu shows:
 
-- The state of nginx, dnsmasq, and each PHP-FPM version, with a Start or Stop button
-- A list of all sites. Click a site to open it in the browser.
-- Site actions: copy the URL, show the folder in Finder, serve over HTTPS, and select the PHP version
+- The state of the services in one line, with a Start button or a stop button. A stopped service shows by name.
+- Three buttons: restart the services, park a folder, and show the config folder in Finder
+- **Open Corral** (⌘O): the main window
+- **Insights** (⌘I): the Insights view that you used last. See [Insights](#insights).
 - The global PHP version, and a menu to install more versions
-- Errors and setup steps, directly in the panel
-
-Right-click a site, or hold the pointer over it and click the "..." button, to show the site actions.
-
-The "..." menu at the bottom of the panel opens these windows:
-
 - **Settings** (⌘,): open at login, domains, `.test` and Herd, PHP versions and settings, parked folders, links, proxies, certificates, and licences.
-- **Insights** (⌘I): dumps, logs, and mail. See [Insights](#insights).
+- Errors and setup steps
+
+### Main window
+
+The main window has a sidebar with **Sites** and the Insights views.
+
+- **Sites** lists all sites in groups, one group for each parked folder. Each row shows the PHP version and the folder. Click a site to open it in the browser.
+- Type in the search field to filter the sites. Return opens the first match.
+- Site actions: copy the URL, show the folder in Finder, serve over HTTPS, and select the PHP version
+- Right-click a site, or hold the pointer over it and click the "..." button, to show the site actions.
+
+While the main window is open, Corral has an app menu. The **Services** menu starts, stops and restarts the services and sets the global PHP version. The **View** menu changes the view (⌘1 to ⌘6).
 
 ### Background service
 
 When you start the services, Corral remembers it.
 Then the app starts the services again when it opens, for example after a restart of the Mac.
-The app also checks the services every 15 seconds and starts a service that stopped. The panel shows each restart.
+The app also checks the services every 15 seconds and starts a service that stopped. The quick menu shows each restart.
 `corral stop` turns this off until the next `corral start`.
 To open Corral at login, turn on Settings > General > "Open Corral at login".
 
@@ -303,8 +309,8 @@ corral wp:defaults --user dev --password dev --email dev@example.com --locale sv
 Without options, the command shows the values. An empty email means `admin@<site>.test`.
 The database name is always `wp_<name>`, whatever the table prefix is.
 
-The panel runs the same steps. Open the site's "..." menu and choose "Set Up WordPress". The entry shows only for a site that has `wp-content` or `wp-load.php` but no `wp-config.php`.
-If a step fails, the panel shows the end of its output.
+The main window runs the same steps. Open the site's "..." menu and choose "Set Up WordPress". The entry shows only for a site that has `wp-content` or `wp-load.php` but no `wp-config.php`.
+If a step fails, Corral shows the end of its output.
 
 #### Import a database
 
@@ -319,7 +325,7 @@ corral wp:import ~/Downloads/shop.sql.gz
 2. Corral imports the dump (`.sql` or `.sql.gz`) with its own PHP (`mysqli`). It does not need the `mysql` client.
 3. Corral reads `siteurl` from the imported data, and replaces the old address with `https://<name>.test` in all tables with the WordPress table prefix. It uses `wp search-replace`, which also changes serialized data. It does not change the `guid` column.
 
-The tables in the dump replace the tables in the database. In the panel, choose "Import Database…" in the site's "..." menu. The entry shows for a site with `wp-config.php`.
+The tables in the dump replace the tables in the database. In the main window, choose "Import Database…" in the site's "..." menu. The entry shows for a site with `wp-config.php`.
 Corral cannot import a dump with `DELIMITER` blocks (stored procedures). Use the `mysql` client for such a file.
 
 ### Laravel setup
@@ -334,7 +340,7 @@ The name defaults to the folder name. The command uses Corral's own `composer` a
 5. Run `npm install` and `npm run build` when `package.json` exists.
 6. Open the site in the browser.
 
-In the panel, choose "Set Up Laravel" in the site's "..." menu. The entry shows for a site that has `artisan` and lacks a `.env` or a `vendor` folder. The panel does not seed the database.
+In the main window, choose "Set Up Laravel" in the site's "..." menu. The entry shows for a site that has `artisan` and lacks a `.env` or a `vendor` folder. The main window does not seed the database.
 
 If the folder already has a `.env`, Corral does not change it. In this case the command runs only `composer install` and the npm build, because the file can point to a database that Corral must not change.
 For WordPress sites, Corral adds the nginx rules for multisite in subdirectories.
@@ -385,7 +391,7 @@ corral migrate:herd --undo
 ### Uninstall Herd
 
 After the move, run `corral uninstall:herd --dry-run` to see what goes, then `corral uninstall:herd`.
-In the panel, choose "Uninstall Herd…" in the "..." menu. The entry shows when Corral serves `.test` and `/Applications/Herd.app` exists.
+In the quick menu, choose "Uninstall Herd…". The entry shows when Corral serves `.test` and `/Applications/Herd.app` exists.
 
 The steps follow Herd's own uninstall script (`Herd.app/Contents/Resources/uninstall`) and Herd's docs page "Uninstalling":
 
@@ -456,7 +462,7 @@ For `.localhost` URLs, Corral connects to `127.0.0.1` (or `::1`) and sends the o
 portless needs the name to select the app.
 
 Corral also lists the apps that portless serves.
-The panel shows them in a "portless" section, and `corral sites` prints them with the word `portless`.
+The Sites view shows them in a "portless" section, and `corral sites` prints them with the word `portless`.
 Click an app to open its address.
 Corral reads the route file `~/.portless/routes.json` (or the folder in `PORTLESS_STATE_DIR`) and the proxy settings next to it.
 It does not start portless, and it does not serve these apps.

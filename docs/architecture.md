@@ -167,9 +167,10 @@ Both tools can run at the same time. Only one tool can get `.test` at a time.
 |---|---|
 | `Sources/Corral/Core.swift` | Sites, configuration files, processes, TLS, and system installation |
 | `Sources/Corral/CLI.swift` | Command-line interface |
-| `Sources/Corral/MenuBar.swift` | Menu bar app, panel, and supervision |
+| `Sources/Corral/MenuBar.swift` | Menu bar app, quick menu, and supervision |
+| `Sources/Corral/MainWindow.swift` | Main window: sidebar, site list, and app menu |
 | `Sources/Corral/Settings.swift` | Settings window |
-| `Sources/Corral/Insights.swift` | Insights window: dumps and logs |
+| `Sources/Corral/Insights.swift` | Insights views: dumps and logs |
 | `Sources/Corral/Mail.swift` | SMTP server and the Mail view |
 | `Sources/Corral/main.swift` | Entry point. With arguments, it runs the CLI. Without arguments, it starts the menu bar app. |
 | `Tests/CorralTests/` | Tests |
