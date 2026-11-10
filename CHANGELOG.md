@@ -8,10 +8,34 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- In the panel's filter, Return opens the first matching site.
+- "Copy URL" says "Copied <url>" in the panel header.
+- Settings > Sites has "Link Folder…", and the setup banner has "Quit Herd" while Herd holds `.test`.
+- The mail list in Insights works like Finder: arrows, Space for Quick Look, Delete, and Return or a double-click to preview.
+- Requests shows the HTTP status of each request, orange for 4xx and red for 5xx.
+
 - `corral check` requests every PHP site and shows each one that does not work, with the likely cause. It is the same check as the last step of `migrate:herd`.
+
+### Changed
+
+- Mail and profiles go to the Trash instead of being deleted. "Clear" now only clears a view. The buttons that remove files say "Move All to Trash".
+- "Remove" in Settings > PHP is "Remove…" and asks first. The alert names the sites that use the version, and the version they switch to.
+- Settings and Insights show when a job is done, and show notices too. The panel header shows "<job>: done".
+- "Send Mail to Corral" turns on mail capture.
+- One name for each action: "Show in Finder", "Park Folder…", "Show Config Folder in Finder". "Set Up WordPress" and "Set Up Laravel" have no "…", because they start at once.
 
 ### Fixed
 
+- Two jobs at once ended the spinner when the first one ended.
+- A notice from the app, such as "Restarted nginx", could replace the result of a user action, such as the password of a new WordPress site.
+- The mail and dump switches showed "on" while a taken port kept Corral from listening.
+- "Settings for" in Settings > PHP dropped edits that were not applied. It now asks first, and Apply says that it saves both sections.
+- A filter that matched no site showed an empty list. The panel now says so, and the filter clears when the panel closes.
+- The log view jumped to the last line every 2 seconds, also while you read earlier lines.
+- "Serve .test instead of Herd" showed without Herd, and the panel and Settings used different rules for it.
+- Adding a proxy cleared the fields before the save, so an error lost the text.
+- The Xdebug fields stayed editable while the pool was off.
+- VoiceOver read empty labels on the Apply rows and the browser toggle.
 - The site check at the end of `migrate:herd` no longer reports slow sites as "no response". A site that does not answer within 20 seconds, while other sites load, gets one more request alone, with 60 seconds.
 
 ## [0.7.0] - 2026-11-10

@@ -236,7 +236,7 @@ Insights shows information from your sites. All of it stays on your Mac.
 
 - **Dumps**: turn on "Send dump() to Corral". Then `dump()` and `dd()` in Laravel and Symfony sites show in Insights, not in the page. Corral uses the server mode of Symfony VarDumper on port 9912. Insights keeps the newest 1000 dumps.
 - **Logs**: the Laravel logs in `storage/logs`, the WordPress `wp-content/debug.log`, and the nginx and PHP-FPM logs. Insights reads the file again every 2 seconds.
-- **Mail**: turn on "Catch mail on 127.0.0.1:2525". Corral receives each message that a site sends with SMTP to this address, and keeps the newest 1000. Click a message to preview it. For a Laravel or WordPress site, click "Send Mail to Corral" in the site menu, or run `corral mail:use` in the site folder.
+- **Mail**: turn on "Catch mail on 127.0.0.1:2525". Corral receives each message that a site sends with SMTP to this address, and keeps the newest 1000. Select a message and press Space to preview it, or double-click it. Delete moves it to the Trash. For a Laravel or WordPress site, click "Send Mail to Corral" in the site menu, or run `corral mail:use` in the site folder. The menu item also turns on mail capture.
   - Laravel: Corral changes the `MAIL_` values in `.env`, and keeps the original file as `.env.corral.bak`.
   - WordPress: Corral adds the must-use plugin `wp-content/mu-plugins/corral-mail.php`. It sends every `wp_mail()` to Corral, also when an SMTP plugin is active. Delete the file to send mail as before.
   - The site name is the inbox, so you can see which site sent a message.
@@ -303,7 +303,7 @@ corral wp:defaults --user dev --password dev --email dev@example.com --locale sv
 Without options, the command shows the values. An empty email means `admin@<site>.test`.
 The database name is always `wp_<name>`, whatever the table prefix is.
 
-The panel runs the same steps. Open the site's "..." menu and choose "Set Up WordPress…". The entry shows only for a site that has `wp-content` or `wp-load.php` but no `wp-config.php`.
+The panel runs the same steps. Open the site's "..." menu and choose "Set Up WordPress". The entry shows only for a site that has `wp-content` or `wp-load.php` but no `wp-config.php`.
 If a step fails, the panel shows the end of its output.
 
 #### Import a database
@@ -334,7 +334,7 @@ The name defaults to the folder name. The command uses Corral's own `composer` a
 5. Run `npm install` and `npm run build` when `package.json` exists.
 6. Open the site in the browser.
 
-In the panel, choose "Set Up Laravel…" in the site's "..." menu. The entry shows for a site that has `artisan` and lacks a `.env` or a `vendor` folder. The panel does not seed the database.
+In the panel, choose "Set Up Laravel" in the site's "..." menu. The entry shows for a site that has `artisan` and lacks a `.env` or a `vendor` folder. The panel does not seed the database.
 
 If the folder already has a `.env`, Corral does not change it. In this case the command runs only `composer install` and the npm build, because the file can point to a database that Corral must not change.
 For WordPress sites, Corral adds the nginx rules for multisite in subdirectories.
