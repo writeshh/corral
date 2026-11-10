@@ -25,6 +25,7 @@ enum CLI {
                                    for example corral run npm run dev. Corral picks a free port and sets PORT.
                                    Use --port for servers that ignore PORT, such as Vite.
       sites                        list sites
+      check                        request every PHP site and name the cause of each error (database, composer, …)
       secure [site] | unsecure [site]
       secured                      list secured sites with the expiry date of each certificate
       use <ver>                    set the global PHP version
@@ -189,6 +190,15 @@ enum CLI {
             case "run":
                 let (name, port, command) = try runOptions(Array(args.dropFirst()), cwd: cwd)
                 return try runDevServer(corral, name: name, port: port, command: command)
+            case "check":
+                guard corral.isRunning else { throw CorralError("Corral is not running. Run corral start first.") }
+                let problems = corral.checkSites { done, total in
+                    FileHandle.standardError.write(Data("\rChecking sites: \(done) of \(total)".utf8))
+                }
+                FileHandle.standardError.write(Data("\n".utf8))
+                if problems.isEmpty { print("Every PHP site answers.") }
+                for p in problems { print("\(p.site)\t\(p.problem)") }
+                return problems.isEmpty ? 0 : 1
             case "sites":
                 let installed = corral.phpVersions()
                 for s in corral.sites() {

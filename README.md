@@ -80,6 +80,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral unproxy <name>` | Remove a proxy site. |
 | `corral run [--name n] [--port p] <command>` | Run a development server and serve it at `https://<folder>.test` while it runs. |
 | `corral sites` | List all sites with their URL, PHP version, and document root. Also lists portless apps. |
+| `corral check` | Request every PHP site and show each site that does not work, with the likely cause, for example a missing database. |
 | `corral secure [site]` | Serve a site over HTTPS. |
 | `corral unsecure [site]` | Serve a site over HTTP. |
 | `corral secured` | List secured sites with the expiry date of each certificate. |
@@ -369,6 +370,8 @@ The second command does these steps. It asks before it quits Herd or removes the
 5. It quits Herd, and it can remove Herd from your login items.
 6. It sends `.test` to Corral, starts the services, and opens each site.
 7. It shows each site that does not work, with the likely cause. For example: a missing database, a wrong database password, or missing Composer packages.
+
+You can run the same check later with `corral check`.
 
 The menu bar app shows the same steps when it finds Herd. The "..." menu also has "Move from Herd…".
 Corral reads the Herd files and does not change them. Corral does not manage Node.js versions.
