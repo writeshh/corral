@@ -34,29 +34,42 @@ struct Footer: View {
     }
 }
 
-/// Shows the job in progress, or the last error, under the tabs.
+/// The status of the window's work, under the tabs: the job in progress, the last error, the job that just
+/// ended, or a notice. Each of the four kinds of feedback shows where the user acted, not only in the panel.
 struct StatusLine: View {
     @ObservedObject var model: Model
 
     var body: some View {
-        if model.busy != nil || model.error != nil {
+        if model.busy != nil || model.error != nil || model.completed != nil || model.notice != nil {
             VStack(spacing: 0) {
                 Divider()
                 Group {
                     if let busy = model.busy {
                         HStack(spacing: 8) { ProgressView().controlSize(.small); Text("\(busy)…").foregroundStyle(.secondary) }
                     } else if let error = model.error {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-                            Text(error).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 0)
-                            Button { model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel("Dismiss")
+                        line("exclamationmark.triangle.fill", .red, error) { model.error = nil }
+                    } else if let completed = model.completed {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                            Text("\(completed): done").foregroundStyle(.secondary)
                         }
+                        .transition(.opacity)
+                    } else if let notice = model.notice {
+                        line("info.circle.fill", Color.brand, notice) { model.notice = nil }
                     }
                 }
                 .font(.callout).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 12)
             }
             .background(.bar)
+        }
+    }
+
+    private func line(_ icon: String, _ color: Color, _ text: String, dismiss: @escaping () -> Void) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon).foregroundStyle(color)
+            Text(text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button(action: dismiss) { Image(systemName: "xmark") }.buttonStyle(.borderless).accessibilityLabel("Dismiss")
         }
     }
 }
@@ -203,7 +216,7 @@ struct PHPTab: View {
                         Text(newer ? "Update available" : latest == nil ? "Corral build" : "Up to date")
                     }
                 }
-                Picker("Settings for", selection: Binding(get: { settings.version ?? "" }, set: { settings.load($0, model.snap) })) {
+                Picker("Settings for", selection: Binding(get: { settings.version ?? "" }, set: { settings.switchTo($0, model.snap) })) {
                     ForEach(model.snap.versions.reversed(), id: \.self) { Text("PHP \($0)").tag($0) }
                 }
             }
@@ -256,6 +269,26 @@ final class PHPSettings: ObservableObject {
         pool = snap.pools[version] ?? FpmPool()
     }
 
+    /// Edits that Apply has not saved yet.
+    func changed(_ snap: Snapshot) -> Bool {
+        guard let version else { return false }
+        return ini != (snap.ini[version] ?? [:]) || pool != (snap.pools[version] ?? FpmPool())
+    }
+
+    /// Another version in "Settings for" would drop the edits, so ask first when there are any.
+    func switchTo(_ version: String, _ snap: Snapshot) {
+        guard version != self.version else { return }
+        if changed(snap), let current = self.version {
+            let alert = NSAlert()
+            alert.messageText = "Discard the changes to PHP \(current)?"
+            alert.informativeText = "You changed settings of PHP \(current) and did not apply them."
+            alert.addButton(withTitle: "Discard Changes").hasDestructiveAction = true
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        load(version, snap)
+    }
+
     func binding(_ key: String) -> Binding<String> {
         Binding(get: { self.ini[key] ?? "" }, set: { self.ini[key] = $0 })
     }
@@ -299,17 +332,20 @@ struct PHPSettingsSections: View {
             TextField("Maximum processes", text: settings.number(\.maxChildren))
             TextField("Request timeout (seconds, 0 = none)", text: settings.number(\.requestTerminateTimeout))
             TextField("Slow log after (seconds, 0 = off)", text: settings.number(\.slowlogTimeout))
-            LabeledContent("") {
+        } header: {
+            Text("PHP-FPM")
+        }
+        // One Apply for both sections above, in its own row, so it is clear that it saves both.
+        Section {
+            LabeledContent(settings.changed(model.snap) ? "PHP \(version) has changes that are not applied" : "No changes") {
                 HStack {
                     Button("Revert") { settings.load(version, model.snap) }
                     Button("Apply", action: apply).keyboardShortcut(.defaultAction)
                 }
-                .disabled(model.busy != nil || (settings.ini == model.snap.ini[version] ?? [:] && settings.pool == model.snap.pools[version]))
+                .disabled(model.busy != nil || !settings.changed(model.snap))
             }
-        } header: {
-            Text("PHP-FPM")
         } footer: {
-            Footer("Corral checks the values with PHP before it saves them, then reloads PHP \(version). A site can set its own values with \"php\" in .corral.json.")
+            Footer("Apply saves the PHP \(version) settings and the PHP-FPM settings. Corral checks the values with PHP before it saves them, then reloads PHP \(version). A site can set its own values with \"php\" in .corral.json.")
         }
     }
 

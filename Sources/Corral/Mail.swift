@@ -136,6 +136,8 @@ extension MailMessage {
 @MainActor
 final class MailServer: ObservableObject {
     static let port = 2525, limit = 1000
+    /// One server for the app: Insights shows it, and "Send Mail to Corral" turns it on.
+    static let shared = MailServer()
 
     @Published private(set) var messages: [MailMessage] = []
     @Published var error: String?
@@ -304,7 +306,8 @@ struct MailView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Toggle("Catch mail on 127.0.0.1:\(String(MailServer.port))", isOn: Binding(get: { model.snap.mail }, set: setMail)) // String: no "2,525"
+                // The switch shows whether Corral listens, not only the setting: a taken port leaves it off.
+                Toggle("Catch mail on 127.0.0.1:\(String(MailServer.port))", isOn: Binding(get: { mail.listening }, set: setMail)) // String: no "2,525"
                 Spacer()
                 Text("\(mail.messages.count) of \(MailServer.limit)").font(.caption).foregroundStyle(.secondary)
                 Button("Move All to Trash", action: mail.clear).disabled(mail.messages.isEmpty)
@@ -315,8 +318,9 @@ struct MailView: View {
             }
             Divider()
             if mail.messages.isEmpty {
-                ContentUnavailableView("No mail yet", systemImage: "tray", description: Text(
-                    "Send mail with SMTP to 127.0.0.1 port \(String(MailServer.port)). In a Laravel site, use \"Send Mail to Corral\" in the site menu."))
+                ContentUnavailableView("No mail yet", systemImage: "tray", description: Text(mail.listening
+                    ? "Send mail with SMTP to 127.0.0.1 port \(String(MailServer.port)). For a Laravel or WordPress site, choose \"Send Mail to Corral\" in the site's menu in the panel."
+                    : "Turn on \"Catch mail\" first. Then the mail that your sites send shows here."))
                     .frame(maxHeight: .infinity)
             } else {
                 List(mail.messages) { m in

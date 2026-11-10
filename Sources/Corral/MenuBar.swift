@@ -96,7 +96,21 @@ final class Model: ObservableObject {
     @Published private(set) var snap = Snapshot()
     @Published private(set) var busy: String?
     @Published var error: String?
-    @Published var notice: String?
+    @Published var notice: String? { didSet { noticeIsBackground = false } } // inform() marks its own notices after this
+    /// The job that just ended without an error, shown for a few seconds: completion feedback where the user acted.
+    @Published private(set) var completed: String?
+    /// Jobs in progress. The spinner stays until the last one ends, not the first.
+    private var jobs = 0
+    /// True when the notice came from the app itself (a restart, the editor), not from something the user did.
+    private var noticeIsBackground = false
+
+    /// A notice the app shows on its own. It never replaces the result of something the user did,
+    /// such as the password of a new WordPress site.
+    func inform(_ text: String) {
+        guard notice == nil || noticeIsBackground else { return }
+        notice = text
+        noticeIsBackground = true
+    }
     @Published var filter = ""
     @Published private(set) var latestPHP: [String: String] = [:] // PHP version -> newest full version in the build list
     @Published private(set) var update: Corral.Update? // a newer release than this app
@@ -129,7 +143,7 @@ final class Model: ObservableObject {
         }
         // An automatic update opens the new copy. Say so once, so the restart is not a mystery.
         if let version = Corral.appVersion, let last = UserDefaults.standard.string(forKey: "lastVersion"), last != version {
-            notice = "Corral updated to \(version)."
+            inform("Corral updated to \(version).")
         }
         UserDefaults.standard.set(Corral.appVersion, forKey: "lastVersion")
         // Short, so "start listening" in the editor works for the next page load. lsof costs a few ms.
@@ -156,7 +170,7 @@ final class Model: ObservableObject {
                 let snap = Snapshot(corral)
                 Task { @MainActor in
                     self.snap = snap
-                    if let message { self.error = message } else { self.notice = "Removed the proxy of a stopped corral run: \(stale.joined(separator: ", "))." }
+                    if let message { self.error = message } else { self.inform("Removed the proxy of a stopped corral run: \(stale.joined(separator: ", "))).") }
                 }
             }
             guard corral.wantsRunning else { return }
@@ -168,7 +182,7 @@ final class Model: ObservableObject {
             Task { @MainActor in
                 self.snap = snap
                 if let message { if self.error != message { self.error = message } }
-                else { self.notice = "Restarted \(down.joined(separator: ", ")) at \(Date.now.formatted(date: .omitted, time: .shortened))." }
+                else { self.inform("Restarted \(down.joined(separator: ", ")) at \(Date.now.formatted(date: .omitted, time: .shortened)).") }
             }
         }
     }
@@ -180,8 +194,8 @@ final class Model: ObservableObject {
             guard corral.updateEditorFlag() else { return }
             let on = FileManager.default.fileExists(atPath: corral.editorFlag), port = corral.config.xdebug.clientPort
             Task { @MainActor in
-                self.notice = on ? "Your editor listens on port \(port). Every PHP request now runs with Xdebug."
-                    : "Your editor stopped listening. Requests run without Xdebug again."
+                self.inform(on ? "Your editor listens on port \(port). Every PHP request now runs with Xdebug."
+                    : "Your editor stopped listening. Requests run without Xdebug again.")
             }
         }
     }
@@ -193,7 +207,7 @@ final class Model: ObservableObject {
         guard corral.home == Corral.defaultHome else { return }
         onQueue {
             guard (try? corral.addToPath()) == true else { return }
-            Task { @MainActor in self.notice = "Corral put its bin folder first in PATH in ~/.zshrc. Open a new terminal to use Corral's php." }
+            Task { @MainActor in self.inform("Corral put its bin folder first in PATH in ~/.zshrc. Open a new terminal to use Corral's php.") }
         }
     }
 
@@ -360,7 +374,7 @@ final class Model: ObservableObject {
 
     /// Runs slow work (downloads, process starts) off the main thread, then refreshes the panel.
     func run(_ label: String?, _ work: @escaping @Sendable (Corral) throws -> Void) {
-        if label != nil { busy = label; error = nil }
+        if let label { jobs += 1; busy = label; error = nil; completed = nil }
         let corral = corral
         onQueue {
             var message: String?
@@ -368,9 +382,22 @@ final class Model: ObservableObject {
             let snap = Snapshot(corral)
             Task { @MainActor in
                 self.snap = snap
-                if label != nil { self.busy = nil }
+                if let label {
+                    self.jobs -= 1
+                    if self.jobs == 0 { self.busy = nil }
+                    if message == nil { self.showCompleted(label) }
+                }
                 if let message { self.error = message }
             }
+        }
+    }
+
+    /// "Saving Xdebug settings" becomes a check mark with "Saving Xdebug settings: done" for 4 seconds.
+    private func showCompleted(_ label: String) {
+        completed = label
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            if self?.completed == label { self?.completed = nil }
         }
     }
 
@@ -396,7 +423,7 @@ final class Model: ObservableObject {
 struct CorralApp: App {
     @StateObject private var model = Model()
     @StateObject private var insights = Insights()
-    @StateObject private var mail = MailServer()
+    @StateObject private var mail = MailServer.shared
 
     init() {
         // AppKit controls (toolbar tabs, checkboxes, focus rings) use the system accent colour, which .tint cannot reach.
@@ -605,7 +632,7 @@ struct Panel: View {
                 Image(nsImage: CorralApp.appIcon(size: 30))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Corral").font(.headline)
-                    Text(model.busy.map { "\($0)…" } ?? (model.running ? "Running" : "Stopped"))
+                    Text(model.busy.map { "\($0)…" } ?? model.completed.map { "\($0): done" } ?? (model.running ? "Running" : "Stopped"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .contentTransition(.opacity)
@@ -980,7 +1007,11 @@ struct SiteRow: View {
                 model.run(laravel ? "Changing .env" : "Adding the mail plugin") { c in
                     let file = try c.useCorralMail(site)
                     let hint = laravel ? "Run php artisan config:clear if the config is cached." : "Delete \((file as NSString).abbreviatingWithTildeInPath) to stop."
-                    Task { @MainActor in model.notice = "\(site.name) sends mail to Corral. Turn on mail in Insights. \(hint)" }
+                    if !c.config.mail { c.config.mail = true; try c.save() }
+                    Task { @MainActor in
+                        MailServer.shared.start() // no dead end: the mail has somewhere to go right away
+                        model.notice = "\(site.name) sends mail to Corral. See it in Insights > Mail. \(hint)"
+                    }
                 }
             }
         }

@@ -34,6 +34,8 @@ final class Insights: ObservableObject {
                 Task { @MainActor in
                     self?.error = "Corral cannot receive dumps on port \(Corral.dumpPort): \(error.localizedDescription). Stop other dump servers, such as php artisan dump-server."
                     self?.stop()
+                    // Without a listener, sites must print dumps on the page again, so the setting goes off too.
+                    DispatchQueue.global().async { let c = Corral(); if c.config.dumps { c.config.dumps = false; try? c.apply() } }
                 }
             }
             listener.start(queue: queue)
@@ -189,7 +191,7 @@ struct DumpsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Toggle("Send dump() to Corral", isOn: Binding(get: { model.snap.dumps }, set: setDumps))
+                Toggle("Send dump() to Corral", isOn: Binding(get: { model.snap.dumps && insights.listening }, set: setDumps))
                     .help("Sites send dump() and dd() output here, not into the page. Uses Symfony VarDumper's server mode on port \(String(Corral.dumpPort)).")
                 Spacer()
                 Text("\(insights.dumps.count) of \(Insights.limit)").font(.caption).foregroundStyle(.secondary)
