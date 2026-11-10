@@ -107,6 +107,12 @@ final class Model: ObservableObject {
     private let corral: Corral
     private let queue = DispatchQueue(label: "dev.corral.work") // every Corral call from the app runs here
 
+    /// Runs on the work queue, after Corral reads config.json again if the CLI changed it.
+    private func onQueue(_ block: @escaping @Sendable () -> Void) {
+        let corral = corral
+        queue.async { corral.reloadIfChanged(); block() }
+    }
+
     var running: Bool { snap.services.first?.up ?? false }
 
     private var watchdog: Timer?
@@ -141,7 +147,7 @@ final class Model: ObservableObject {
     func repair() {
         guard busy == nil else { return }
         let corral = corral
-        queue.async {
+        onQueue {
             guard corral.wantsRunning else { return }
             let down = corral.status().filter { !$0.1 }.map(\.0)
             guard !down.isEmpty else { return }
@@ -159,7 +165,7 @@ final class Model: ObservableObject {
     /// While an editor listens on the Xdebug client port, every PHP request goes to the debug pool. Says so when it changes.
     private func detectEditor() {
         let corral = corral
-        queue.async {
+        onQueue {
             guard corral.updateEditorFlag() else { return }
             let on = FileManager.default.fileExists(atPath: corral.editorFlag), port = corral.config.xdebug.clientPort
             Task { @MainActor in
@@ -174,7 +180,7 @@ final class Model: ObservableObject {
     private func addToPath() {
         let corral = corral
         guard corral.home == Corral.defaultHome else { return }
-        queue.async {
+        onQueue {
             guard (try? corral.addToPath()) == true else { return }
             Task { @MainActor in self.notice = "Corral put its bin folder first in PATH in ~/.zshrc. Open a new terminal to use Corral's php." }
         }
@@ -185,7 +191,7 @@ final class Model: ObservableObject {
         busy = "Reading Herd"
         error = nil
         let corral = corral
-        queue.async {
+        onQueue {
             let plan = Result { try corral.importHerd(dryRun: true) }
             let loginItem = Corral.herdLoginItem
             Task { @MainActor in
@@ -229,7 +235,7 @@ final class Model: ObservableObject {
     func uninstallHerd() {
         busy = "Reading Herd"
         error = nil
-        queue.async {
+        onQueue {
             let plan = Corral.herdUninstallPlan()
             Task { @MainActor in
                 self.busy = nil
@@ -279,7 +285,7 @@ final class Model: ObservableObject {
     /// Reads the build list, so Settings can offer an update only when a newer build exists. Offline, it stays empty.
     func checkPHPUpdates() {
         let corral = corral
-        queue.async {
+        onQueue {
             let latest = ((try? corral.phpManifest()) ?? [:]).compactMapValues { $0["version"] }
             Task { @MainActor in self.latestPHP = latest }
         }
@@ -288,7 +294,7 @@ final class Model: ObservableObject {
     /// Asks for the newest version of each tool, so Settings can offer an update only when there is one. Offline, it stays empty.
     func checkToolUpdates() {
         let corral = corral
-        queue.async {
+        onQueue {
             var latest: [String: String] = [:]
             for tool in Corral.tools { latest[tool.name] = (try? corral.latestRelease(tool))?.version }
             let found = latest
@@ -304,7 +310,7 @@ final class Model: ObservableObject {
         checkingUpdate = true
         if manual { updateStatus = nil }
         let corral = corral
-        queue.async {
+        onQueue {
             var found: Corral.Update?, message: String?
             do { found = try corral.availableUpdate() } catch { message = error.localizedDescription }
             Task { @MainActor in
@@ -326,7 +332,7 @@ final class Model: ObservableObject {
         guard let update, busy == nil else { return }
         busy = "Updating to Corral \(update.version)"; error = nil
         let corral = corral
-        queue.async {
+        onQueue {
             var message: String?
             do { try corral.installUpdate(update) } catch { message = error.localizedDescription }
             Task { @MainActor in
@@ -345,7 +351,7 @@ final class Model: ObservableObject {
     func run(_ label: String?, _ work: @escaping @Sendable (Corral) throws -> Void) {
         if label != nil { busy = label; error = nil }
         let corral = corral
-        queue.async {
+        onQueue {
             var message: String?
             do { try work(corral) } catch { message = error.localizedDescription }
             let snap = Snapshot(corral)

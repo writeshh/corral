@@ -108,6 +108,19 @@ import Testing
     #expect(conf.contains("proxy_set_header Origin $corral_origin;")) // Next.js hot reload on a .test name
     #expect(!conf.contains("fastcgi_pass")) // proxies never touch PHP
 
+    // The app keeps one Corral. It reads config.json again after the CLI changes it, and keeps it when nothing changed.
+    try c.save()
+    let app = Corral(home: tmp), cli = Corral(home: tmp)
+    cli.config.queries = true
+    try cli.save()
+    try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 5)], ofItemAtPath: tmp + "/config.json")
+    app.config.tld = "unsaved"
+    app.reloadIfChanged()
+    #expect(app.config.queries && app.config.tld == "test" && app.config.proxies.count == 2)
+    app.config.tld = "unsaved"
+    app.reloadIfChanged() // no change on disk: the copy in memory stays
+    #expect(app.config.tld == "unsaved")
+
     // A broken config.json is never overwritten.
     try Data("{broken".utf8).write(to: URL(fileURLWithPath: tmp + "/config.json"))
     let broken = Corral(home: tmp)

@@ -35,6 +35,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The menu bar app reads `config.json` again after a `corral` command changes it. Before, the app kept the copy it read at launch. It did not see changes such as `corral xdebug on` or `corral link`, and a later change in the app wrote the old copy back.
 - Recording requests no longer causes a "Constant SAVEQUERIES already defined" warning in a WordPress site whose `wp-config.php` defines `SAVEQUERIES`. The site's own value counts.
 - Section footers in Settings are aligned to the leading edge. The Settings window aligned multi-line footers to the right.
 - Settings > General no longer shows the main TLD as an extra TLD. Corral drops an extra TLD that is the same as the main TLD, for example after the main TLD changed from `internal` to `test`.

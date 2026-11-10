@@ -184,6 +184,7 @@ final class Corral: @unchecked Sendable {
     let brew: String
     var config = Config()
     private(set) var loadError: String?
+    private var loadedDate: Date? // modification date of config.json when this instance last read or wrote it
 
     init(home: String? = nil) {
         let env = ProcessInfo.processInfo.environment
@@ -196,6 +197,20 @@ final class Corral: @unchecked Sendable {
             config.parked = [NSHomeDirectory() + "/Corral"]
             if home == nil { try? FileManager.default.createDirectory(atPath: config.parked[0], withIntermediateDirectories: true) }
         }
+        loadedDate = configDate
+    }
+
+    private var configDate: Date? {
+        (try? FileManager.default.attributesOfItem(atPath: home + "/config.json"))?[.modificationDate] as? Date
+    }
+
+    /// The app keeps one Corral while it runs. The CLI can change config.json in the meantime, so the app reads
+    /// it again before its work. Without this, the app writes its old copy back and drops the change.
+    func reloadIfChanged() {
+        guard let date = configDate, date != loadedDate,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: home + "/config.json")) else { return }
+        do { config = try JSONDecoder().decode(Config.self, from: data); loadError = nil } catch { loadError = "\(error)" }
+        loadedDate = date
     }
 
     static let defaultHome = NSHomeDirectory() + "/Library/Application Support/Corral"
@@ -212,6 +227,7 @@ final class Corral: @unchecked Sendable {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         try enc.encode(config).write(to: URL(fileURLWithPath: home + "/config.json"))
+        loadedDate = configDate
     }
 
     // MARK: Sites
