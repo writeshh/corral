@@ -6,6 +6,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-10
+
 ### Fixed
 
 - A proxy site works when its server listens only on `::1`. Vite, Astro, and other Node servers do this for `localhost`. nginx tries `127.0.0.1` first, then `::1`.
@@ -170,7 +172,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The menu bar panel shrinks after a banner closes, and the site list text is sharp.
 - Port numbers show without a thousands separator, for example 2525.
 
-[Unreleased]: https://github.com/writeshh/corral/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/writeshh/corral/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/writeshh/corral/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/writeshh/corral/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/writeshh/corral/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/writeshh/corral/compare/v0.3.1...v0.4.0
