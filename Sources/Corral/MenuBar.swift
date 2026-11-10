@@ -504,6 +504,7 @@ struct CorralApp: App {
         Settings { SettingsView(model: model) }
 
         Window("Corral", id: "main") { MainView(model: model, insights: insights, mail: mail) }
+            .windowStyle(.hiddenTitleBar)
             .commands { AppCommands(model: model) }
     }
 
@@ -592,15 +593,75 @@ struct CorralApp: App {
     }
 }
 
-extension Color {
-    /// A color with one value for dark mode and one for light mode, each as 0xRRGGBB.
-    init(dark: UInt32, light: UInt32) {
-        self.init(nsColor: NSColor(name: nil) { appearance in
-            let hex = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
-        })
+/// The text field of the site filter. A SwiftUI TextField made macOS password AutoFill (SafariPlatformSupport) prepare its suggestion
+/// window when the panel opened, and that window could show empty in front of the panel. The panel had the filter then. AutoFill skips search fields.
+/// The search field's own bezel and buttons are off: SearchField draws the icon, the clear button and the background.
+struct FilterField: NSViewRepresentable {
+    @Binding var text: String
+    var onSubmit: () -> Void = {}
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = "Filter sites"
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        if let cell = field.cell as? NSSearchFieldCell { cell.searchButtonCell = nil; cell.cancelButtonCell = nil }
+        field.delegate = context.coordinator
+        return field
     }
 
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, onSubmit: onSubmit) }
+
+    @MainActor final class Coordinator: NSObject, NSSearchFieldDelegate {
+        let text: Binding<String>
+        let onSubmit: () -> Void
+        init(text: Binding<String>, onSubmit: @escaping () -> Void) { self.text = text; self.onSubmit = onSubmit }
+        func controlTextDidChange(_ note: Notification) { text.wrappedValue = (note.object as? NSTextField)?.stringValue ?? "" }
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+            onSubmit()
+            return true
+        }
+    }
+}
+
+extension NSColor {
+    /// A color with one value for dark mode and one for light mode, each as 0xRRGGBB.
+    static func dynamic(dark: UInt32, light: UInt32) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let hex = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+        }
+    }
+}
+
+extension Color {
+    /// A color with one value for dark mode and one for light mode, each as 0xRRGGBB.
+    init(dark: UInt32, light: UInt32) { self.init(nsColor: .dynamic(dark: dark, light: light)) }
+
+    // Grounds, from deep to raised. The canvas value is the ink of the app icon.
+    static let canvas = Color(dark: 0x111111, light: 0xECEDE7)
+    static let surface = Color(dark: 0x1A1917, light: 0xFBFAF7)
+    static let surfaceRaised = Color(dark: 0x232220, light: 0xF3F1EC)
+    static let surfaceHover = Color(dark: 0x2C2A27, light: 0xE9E6DF)
+    static let surfacePressed = Color(dark: 0x363430, light: 0xDEDAD2)
+    /// A hairline between regions. Decoration only.
+    static let border = Color(dark: 0x3A3834, light: 0xDCD8CF)
+    /// The edge of a control. 3:1 on surface and surfaceRaised.
+    static let borderStrong = Color(dark: 0x76726A, light: 0x8A867D)
+    static let ink = Color(dark: 0xECEDE7, light: 0x111111)
+    static let inkMuted = Color(dark: 0xA8A59C, light: 0x55524B)
+    /// Placeholder, time and lock. On surface, surfaceRaised and canvas only.
+    static let inkFaint = Color(dark: 0x8F8C84, light: 0x6B6860)
+    static let onBrand = Color(dark: 0x111111, light: 0xFFFFFF)
+    /// The fill of the selected row and of an info banner.
+    static let brandSoft = Color(dark: 0x3A2416, light: 0xFBE6D6)
     /// Corral orange (#DF5D09), from the icon. Each mode gets a shade that keeps text readable (4.5:1 or more).
     /// Orange means "act". It is not a status color.
     static let brand = Color(dark: 0xF2762A, light: 0xC75208)
@@ -690,7 +751,7 @@ struct Panel: View {
                     .disabled(model.busy != nil)
             } else {
                 Button("Start", action: model.toggleServices)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(CorralButtonStyle(primary: true))
                     .disabled(model.busy != nil)
             }
         }
@@ -757,14 +818,16 @@ struct Panel: View {
         VStack(alignment: .leading, spacing: 2) {
             MenuRow(title: "Open Corral", symbol: "macwindow", shortcut: "⌘O", action: openMain).keyboardShortcut("o")
             MenuRow(title: "Insights", symbol: "chart.bar", shortcut: "⌘I") { section = insightsTab; openMain() }.keyboardShortcut("i")
-            Menu { GlobalPHPMenu(model: model) } label: {
-                Label(model.snap.globalPHP.map { "Global PHP \($0)" } ?? "No PHP", systemImage: "chevron.left.forwardslash.chevron.right")
+            // A menu with the row's own label, so its symbol and title line up with the other rows.
+            HoverRow {
+                Menu { GlobalPHPMenu(model: model) } label: {
+                    MenuRowLabel(title: "Global PHP", symbol: "chevron.left.forwardslash.chevron.right",
+                                 trailing: model.snap.globalPHP.map { "PHP \($0)" } ?? "None", chevron: true)
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .tint(.primary) // orange labels fade on the translucent panel over a light window
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
             MenuRow(title: "Settings…", symbol: "gearshape", shortcut: "⌘,") { NSApp.activate(); openSettings() }.keyboardShortcut(",")
             // Only with Herd on the Mac, and off when .test is the main TLD: the same rules as in Settings.
             if model.snap.herdFound {
@@ -817,24 +880,48 @@ struct MenuRow: View {
     let symbol: String
     var shortcut = ""
     let action: () -> Void
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        HoverRow {
+            Button(action: action) { MenuRowLabel(title: title, symbol: symbol, trailing: shortcut) }
+                .buttonStyle(.plain)
+        }
+        .opacity(enabled ? 1 : 0.45)
+    }
+}
+
+/// The content of a quick menu row. A button row and the Global PHP menu share it, so they line up.
+struct MenuRowLabel: View {
+    let title: String
+    let symbol: String
+    var trailing = ""
+    var chevron = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 16)
+            Text(title).lineLimit(1)
+            Spacer(minLength: 8)
+            Text(trailing).font(.subheadline).foregroundStyle(.secondary)
+            if chevron { Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(.secondary) }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .contentShape(.rect)
+    }
+}
+
+/// The hover highlight of a quick menu row.
+struct HoverRow<Content: View>: View {
+    @ViewBuilder var content: Content
     @StateObject private var hover = Hover()
     @Environment(\.isEnabled) private var enabled
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 16)
-                Text(title).lineLimit(1)
-                Spacer(minLength: 8)
-                Text(shortcut).font(.subheadline).foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .contentShape(.rect)
-        }
-        .buttonStyle(RowStyle(hovering: hover.on && enabled))
-        .opacity(enabled ? 1 : 0.45)
-        .onHover { hover.on = $0 }
+        content
+            .background(Color.primary.opacity(hover.on && enabled ? 0.06 : 0), in: .rect(cornerRadius: 6))
+            .onHover { hover.on = $0 }
     }
 }
 
@@ -903,7 +990,7 @@ struct KindTile: View {
         case .php: (.kindPHP, nil)
         }
         RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(Color.primary.opacity(0.08))
+            .fill(Color.surfaceRaised)
             .frame(width: 20, height: 20)
             .overlay {
                 if let mark {
@@ -923,74 +1010,23 @@ extension Snapshot.Kind {
     }
 }
 
-struct SiteRow: View {
+/// The actions and settings of one site. The context menu of the site list and the details pane share them.
+struct SiteActions: View {
     let row: Snapshot.Row
     @ObservedObject var model: Model
-    @StateObject private var hover = Hover()
-    private var hovering: Bool { hover.on }
+    var includesOpen = true // the details pane has its own Open button
 
     var body: some View {
-        // One line for each site: kind, name, lock, then the PHP version and the folder in columns.
-        // The top level domain is quiet, so the eye reads the name first. A pinned PHP version shows as a badge.
-        let dot = row.host.lastIndex(of: ".") ?? row.host.endIndex
-        Button { NSWorkspace.shared.open(row.url) } label: {
-            HStack(spacing: 8) {
-                KindTile(kind: row.kind)
-                Text("\(Text(row.host[..<dot]).fontWeight(.medium))\(Text(row.host[dot...]).foregroundStyle(.secondary))")
-                    .lineLimit(1).truncationMode(.middle)
-                if row.secured {
-                    Image(systemName: "lock.fill").font(.caption).foregroundStyle(.secondary)
-                        .accessibilityLabel("HTTPS")
-                }
-                Spacer(minLength: 8)
-                Group {
-                    if let pinned = row.isolated {
-                        Text(pinned)
-                            .font(.subheadline.weight(.medium).monospacedDigit())
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(.quaternary, in: .rect(cornerRadius: 4))
-                            .help("PHP version pinned to this site")
-                    } else {
-                        Text(row.php ?? "").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                            .help("Global PHP version")
-                    }
-                }
-                .frame(width: 44, alignment: .leading)
-                Text(row.detail).font(.system(.subheadline, design: .monospaced)).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle)
-                    .frame(maxWidth: 260, alignment: .leading)
-                    .layoutPriority(-1)
-                actions.opacity(hovering ? 1 : 0)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .contentShape(.rect)
-        }
-        .buttonStyle(RowStyle(hovering: hovering))
-        .onHover { hover.on = $0 }
-        .contextMenu { menuItems }
-        .help("Open \(row.url.absoluteString)")
-    }
-
-    private var actions: some View {
-        Menu { menuItems } label: { Image(systemName: "ellipsis") }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .accessibilityLabel("Actions for \(row.host)")
-    }
-
-    @ViewBuilder private var menuItems: some View {
         let site = row.site
-        Button("Open in Browser") { NSWorkspace.shared.open(row.url) }
-        Button("Copy URL") {
+        if includesOpen { Button("Open in Browser", systemImage: "safari") { NSWorkspace.shared.open(row.url) } }
+        Button("Copy URL", systemImage: "doc.on.doc") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(row.url.absoluteString, forType: .string)
             model.confirm("Copied \(row.url.absoluteString)") // a copy shows nothing else, so say it worked
         }
         let laravel = FileManager.default.fileExists(atPath: site.path + "/artisan")
         if site.proxy == nil && (laravel || Corral.wordPressContent(site.path) != nil) {
-            Button("Send Mail to Corral") {
+            Button("Send Mail to Corral", systemImage: "envelope") {
                 model.run(laravel ? "Changing .env" : "Adding the mail plugin") { c in
                     let file = try c.useCorralMail(site)
                     let hint = laravel ? "Run php artisan config:clear if the config is cached." : "Delete \((file as NSString).abbreviatingWithTildeInPath) to stop."
@@ -1003,7 +1039,7 @@ struct SiteRow: View {
             }
         }
         if site.proxy == nil && Corral.needsWordPressSetup(site.path) {
-            Button("Set Up WordPress") { // no "…": it starts at once, with no dialog
+            Button("Set Up WordPress", systemImage: "wand.and.stars") { // no "…": it starts at once, with no dialog
                 model.run("Setting up \(site.name)") { c in
                     try c.setUpWordPress(site)
                     let wp = c.config.wordpress
@@ -1012,10 +1048,10 @@ struct SiteRow: View {
             }
         }
         if site.proxy == nil && FileManager.default.fileExists(atPath: site.path + "/wp-config.php") {
-            Button("Import Database…") { importDump(site) }
+            Button("Import Database…", systemImage: "square.and.arrow.down") { importDump(site) }
         }
         if site.proxy == nil && Corral.needsLaravelSetup(site.path) {
-            Button("Set Up Laravel") {
+            Button("Set Up Laravel", systemImage: "wand.and.stars") {
                 model.run("Setting up \(site.name)") { c in
                     try c.setUpLaravel(site)
                     Task { @MainActor in model.notice = "\(row.host) is set up: dependencies, .env, key, database, migrations." }
@@ -1023,9 +1059,18 @@ struct SiteRow: View {
             }
         }
         if site.proxy == nil {
-            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: site.path)]) }
+            Button("Show in Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: site.path)]) }
         }
-        Divider()
+    }
+}
+
+/// HTTPS and the PHP version of one site. The context menu and the details pane share them.
+struct SiteSettings: View {
+    let row: Snapshot.Row
+    @ObservedObject var model: Model
+
+    var body: some View {
+        let site = row.site
         Toggle("Serve over HTTPS", isOn: Binding(
             get: { row.secured },
             set: { on in model.run(on ? "Securing \(row.host)" : "Removing HTTPS") { try $0.setSecure(site, on) } }
@@ -1042,7 +1087,7 @@ struct SiteRow: View {
     }
 }
 
-extension SiteRow {
+extension SiteActions {
     /// Asks for a SQL dump, then imports it. The old address becomes this site's address.
     func importDump(_ site: Site) {
         NSApp.activate()
@@ -1055,18 +1100,5 @@ extension SiteRow {
             let summary = try c.importWordPressDump(site, dump: url.path)
             Task { @MainActor in model.notice = summary }
         }
-    }
-}
-
-/// Row highlight on hover, slightly stronger on press. Feedback starts on press, not on release.
-struct RowStyle: ButtonStyle {
-    let hovering: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(
-                Color.primary.opacity(configuration.isPressed ? 0.12 : hovering ? 0.06 : 0),
-                in: .rect(cornerRadius: 6)
-            )
     }
 }
