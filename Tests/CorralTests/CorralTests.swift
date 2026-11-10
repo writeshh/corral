@@ -304,7 +304,7 @@ import Testing
     #expect(Corral.diagnose(status: 500, "require(/x/vendor/autoload.php): Failed to open stream") == "missing Composer packages: run composer install")
     #expect(Corral.diagnose(status: 500, "SQLSTATE[HY000] [1045] Access denied for user 'root'") == "wrong database user or password")
     #expect(Corral.diagnose(status: 500, "") == "HTTP 500")
-    #expect(Corral.diagnose(status: 0, "") == "no response")
+    #expect(Corral.diagnose(status: 0, "") == "no response in 60 seconds")
     #expect(Corral.diagnose(status: 200, "<html>") == nil)
 }
 

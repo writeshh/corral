@@ -1486,6 +1486,8 @@ final class Corral: @unchecked Sendable {
         let results = state.withLock { $0.results }
         return list.indices.compactMap { i in
             var (status, text) = results[i]!
+            // A slow site can pass the time limit while other requests load PHP. Alone, with more time, it often answers.
+            if status == 0 { (status, text) = request(list[i], log: nil, timeout: 60) }
             // A PHP error page without a cause often has the cause in the FPM log. Parallel requests mix
             // their lines in that log, so request the site again alone to read only its own lines.
             if Self.diagnose(status: status, text) == "HTTP \(status)" {
@@ -1498,12 +1500,12 @@ final class Corral: @unchecked Sendable {
     /// One request to a site: the HTTP status (0 for no response) and the page, plus the new lines of `log`.
     /// It goes to the address that the browser uses, so the check also covers the pf redirect. Some pf rules
     /// (for example from Herd) drop direct connections to nginx's own ports.
-    private func request(_ site: Site, log: String?) -> (status: Int, text: String) {
+    private func request(_ site: Site, log: String?, timeout: Int = 20) -> (status: Int, text: String) {
         let port = config.secured.contains(site.name) ? 443 : 80, host = host(site)
         let logStart = log.flatMap { try? FileManager.default.attributesOfItem(atPath: $0)[.size] as? UInt64 } ?? 0
         let body = FileManager.default.temporaryDirectory.appendingPathComponent("corral-check-\(UUID().uuidString)").path
         defer { try? FileManager.default.removeItem(atPath: body) }
-        let status = (try? sh("/usr/bin/curl", ["-sk", "--max-time", "20", "-o", body, "-w", "%{http_code}",
+        let status = (try? sh("/usr/bin/curl", ["-sk", "--max-time", "\(timeout)", "-o", body, "-w", "%{http_code}",
                                                 "--connect-to", "\(host):\(port):\(Self.loopback):\(port)", url(site).absoluteString])) ?? "000"
         var text = (try? String(contentsOfFile: body, encoding: .utf8)) ?? ""
         if let log, let h = FileHandle(forReadingAtPath: log) {
@@ -1526,7 +1528,7 @@ final class Corral: @unchecked Sendable {
             ("No Corral site here", "nginx has no site for this name"),
         ]
         if let cause = causes.first(where: { text.contains($0.0) }) { return cause.1 }
-        if status == 0 { return "no response" }
+        if status == 0 { return "no response in 60 seconds" }
         return status >= 500 ? "HTTP \(status)" : nil
     }
 

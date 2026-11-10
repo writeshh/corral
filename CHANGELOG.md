@@ -6,6 +6,10 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- The site check at the end of `migrate:herd` no longer reports slow sites as "no response". A site that does not answer within 20 seconds, while other sites load, gets one more request alone, with 60 seconds.
+
 ## [0.7.0] - 2026-11-10
 
 ### Added
