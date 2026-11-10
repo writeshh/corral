@@ -633,7 +633,8 @@ final class Corral: @unchecked Sendable {
             let version = php(for: site, installed)
             let sock = version.map { self.sock($0, for: site) } ?? "\(run)/no-php.sock"
             let debugSock = version.flatMap { debugging.contains($0) ? self.sock($0, for: site, debug: true) : nil }
-            let body = { (https: Bool) in site.proxy.map(self.proxyBody) ?? self.siteBody(site, sock: sock, debugSock: debugSock, https: https) }
+            let body = { (https: Bool) in site.proxy.map { self.proxyBody($0, name: site.name) } ?? self.siteBody(site, sock: sock, debugSock: debugSock, https: https) }
+            if let proxy = site.proxy { out += proxyUpstream(site.name, proxy) }
             if config.secured.contains(site.name) {
                 out += """
                     server { listen 127.0.0.1:\(Self.httpPort); server_name \(names); return 301 https://$host$request_uri; }
@@ -661,16 +662,28 @@ final class Corral: @unchecked Sendable {
         return out + "}\n"
     }
 
-    // Dev servers (Next.js, Vite, portless, …). `.localhost` names may not resolve outside a browser,
-    // so nginx connects to 127.0.0.1 and keeps the name in the Host header and TLS SNI for name-based routers.
-    func proxyBody(_ url: URL) -> String {
+    // Dev servers (Next.js, Vite, portless, …). `.localhost` names may not resolve outside a browser, so nginx connects
+    // to the loopback address and keeps the name in the Host header and TLS SNI for name-based routers.
+    static func isLoopback(_ host: String) -> Bool {
+        ["127.0.0.1", "::1", "localhost"].contains(host) || host.hasSuffix(".localhost")
+    }
+
+    /// A server on this Mac can listen on 127.0.0.1 or only on ::1 (Node uses ::1 for "localhost"), so nginx tries both.
+    /// max_fails=0: a server that restarts is never marked down. ::1 gets only the requests that 127.0.0.1 refuses.
+    func proxyUpstream(_ name: String, _ url: URL) -> String {
+        guard let host = url.host, Self.isLoopback(host) else { return "" }
+        let port = url.port ?? (url.scheme == "https" ? 443 : 80)
+        return "    upstream corral-\(name) { server 127.0.0.1:\(port) max_fails=0; server [::1]:\(port) max_fails=0 backup; }\n"
+    }
+
+    func proxyBody(_ url: URL, name: String) -> String {
         let host = url.host ?? "127.0.0.1"
         let port = url.port.map { ":\($0)" } ?? ""
-        let target = host == "localhost" || host.hasSuffix(".localhost") ? "127.0.0.1" : host
+        let target = Self.isLoopback(host) ? "corral-\(name)" : host + port
         let tls = url.scheme == "https" ? "proxy_ssl_server_name on;\n            proxy_ssl_name \(host);" : ""
         return """
                 location / {
-                    proxy_pass \(url.scheme ?? "http")://\(target)\(port);
+                    proxy_pass \(url.scheme ?? "http")://\(target);
                     proxy_http_version 1.1;
                     proxy_set_header Host "\(host)\(port)";
                     proxy_set_header Upgrade $http_upgrade;
@@ -975,6 +988,7 @@ final class Corral: @unchecked Sendable {
 
     /// Idempotent: writes configs, starts whatever is down, reloads nginx if it's already up.
     func start() throws {
+        if !cleanStaleRuns().isEmpty { try save() }
         try writeConfigs()
         cleanProfiles()
         updateEditorFlag()
@@ -1050,6 +1064,32 @@ final class Corral: @unchecked Sendable {
     func apply() throws {
         try save()
         if isRunning { try start() } else { try writeConfigs() }
+    }
+
+    // MARK: corral run
+
+    /// What `corral run` changed, kept in a file while it runs. A SIGKILL skips its cleanup, so the next
+    /// `start` (or the app, every 15 s) puts the old proxy back when the process is gone.
+    struct RunRecord: Codable { var pid: Int32; var proxy: String?; var secured: Bool }
+
+    func runRecordPath(_ name: String) -> String { "\(run)/corral-run-\(name).json" }
+
+    /// Restores the config for each `corral run` whose process is gone, and returns the names. Does not save.
+    // ponytail: a new process with the reused pid keeps the proxy until it ends too.
+    func cleanStaleRuns() -> [String] {
+        let fm = FileManager.default
+        var names: [String] = []
+        for file in (try? fm.contentsOfDirectory(atPath: run)) ?? [] where file.hasPrefix("corral-run-") && file.hasSuffix(".json") {
+            let path = "\(run)/\(file)"
+            guard let data = fm.contents(atPath: path), let record = try? JSONDecoder().decode(RunRecord.self, from: data) else { continue }
+            if kill(record.pid, 0) == 0 || errno == EPERM { continue } // still running
+            let name = String(file.dropFirst("corral-run-".count).dropLast(".json".count))
+            config.proxies[name] = record.proxy
+            if !record.secured { config.secured.remove(name) }
+            try? fm.removeItem(atPath: path)
+            names.append(name)
+        }
+        return names
     }
 
     // MARK: TLS (same approach as Valet's Site.php: local CA + per-site leaf, trusted in the login keychain)

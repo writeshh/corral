@@ -100,10 +100,11 @@ import Testing
     c.config.proxies = ["shop": "https://shop.localhost:1355", "api": "http://127.0.0.1:3000"]
     let sites = c.sites()
     let conf = c.nginxConf(sites: sites, installed: [:])
-    #expect(conf.contains("proxy_pass https://127.0.0.1:1355;"))
+    #expect(conf.contains("upstream corral-shop { server 127.0.0.1:1355 max_fails=0; server [::1]:1355 max_fails=0 backup; }"))
+    #expect(conf.contains("proxy_pass https://corral-shop;"))
     #expect(conf.contains("proxy_set_header Host \"shop.localhost:1355\";"))
     #expect(conf.contains("proxy_ssl_name shop.localhost;"))
-    #expect(conf.contains("proxy_pass http://127.0.0.1:3000;"))
+    #expect(conf.contains("proxy_pass http://corral-api;")) // a dev server on 127.0.0.1 or only on ::1
     #expect(conf.contains("map $http_upgrade $connection_upgrade"))
     #expect(conf.contains("proxy_set_header Origin $corral_origin;")) // Next.js hot reload on a .test name
     #expect(!conf.contains("fastcgi_pass")) // proxies never touch PHP
@@ -709,6 +710,37 @@ import Testing
     #expect(throws: CorralError.self) { try CLI.runOptions([], cwd: "/x/shop") }
     let port = try CLI.freePort()
     #expect(port > 1024 && port <= 65535)
+}
+
+@Test func runPortFlagsAndStaleRuns() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+    try #"{"scripts": {"dev": "NODE_ENV=development vite", "site": "astro dev", "next": "next dev"}}"#
+        .write(toFile: tmp + "/package.json", atomically: true, encoding: .utf8)
+    let vite = ["--port", "5000", "--strictPort", "--host", "127.0.0.1"], astro = ["--port", "5000", "--host", "127.0.0.1"]
+    #expect(CLI.portFlags(["npx", "vite"], port: 5000, cwd: tmp) == vite)
+    #expect(CLI.portFlags(["npm", "run", "dev"], port: 5000, cwd: tmp) == ["--"] + vite) // npm needs "--"
+    #expect(CLI.portFlags(["npm", "run", "dev", "--", "--open"], port: 5000, cwd: tmp) == vite)
+    #expect(CLI.portFlags(["pnpm", "dev"], port: 5000, cwd: tmp) == vite)
+    #expect(CLI.portFlags(["yarn", "site"], port: 5000, cwd: tmp) == astro)
+    #expect(CLI.portFlags(["npm", "run", "next"], port: 5000, cwd: tmp).isEmpty) // Next.js reads PORT
+    #expect(CLI.portFlags(["vite", "--port", "4000"], port: 5000, cwd: tmp).isEmpty) // the user's own port wins
+    #expect(CLI.portFlags(["python3", "-m", "http.server"], port: 5000, cwd: tmp).isEmpty)
+
+    // A run that got a SIGKILL leaves its record. The next start puts the old proxy back.
+    let c = Corral(home: tmp + "/home")
+    try c.mkdirs(c.run)
+    c.config.proxies = ["shop": "http://127.0.0.1:5000", "api": "http://127.0.0.1:6000"]
+    c.config.secured = ["shop", "api"]
+    let dead = Process()
+    dead.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+    try dead.run(); dead.waitUntilExit()
+    try JSONEncoder().encode(Corral.RunRecord(pid: dead.processIdentifier, proxy: nil, secured: false)).write(to: URL(fileURLWithPath: c.runRecordPath("shop")))
+    try JSONEncoder().encode(Corral.RunRecord(pid: getpid(), proxy: nil, secured: false)).write(to: URL(fileURLWithPath: c.runRecordPath("api")))
+    #expect(c.cleanStaleRuns() == ["shop"])
+    #expect(c.config.proxies == ["api": "http://127.0.0.1:6000"] && c.config.secured == ["api"]) // api still runs
+    #expect(!FileManager.default.fileExists(atPath: c.runRecordPath("shop")) && FileManager.default.fileExists(atPath: c.runRecordPath("api")))
 }
 
 @Test func newLaravelProject() throws {

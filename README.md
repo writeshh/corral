@@ -425,7 +425,10 @@ corral run npm run dev
 ```
 
 - Use `--name` to choose another name than the folder name.
-- Use `--port` for a server that does not read `PORT`, for example Vite: `corral run --port 5173 npx vite --port 5173`.
+- Vite and Astro do not read `PORT`. Corral adds `--port` and `--host 127.0.0.1` to `vite` and `astro dev`, also when a `package.json` script (`npm run dev`) runs them. Corral prints the flags that it adds.
+- Use `--port` for another server that does not read `PORT`, and give the same port to the server: `corral run --port 8000 python3 -m http.server 8000`.
+- A server can listen on `127.0.0.1` or only on `::1`. nginx tries `127.0.0.1` first, then `::1`.
+- If the `corral run` process is killed (`kill -9`), it cannot remove its proxy. The menu bar app removes it within 15 seconds, and `corral start` removes it too.
 - Next.js 15.2 and later allow hot reload only from `localhost` origins. For the `/_next` paths of a proxy site, Corral sends a `localhost` origin when the page comes from the site itself. You do not need `allowedDevOrigins`.
 
 [portless](https://github.com/vercel-labs/portless) gives each app a name such as `shop.localhost`.
@@ -438,7 +441,7 @@ corral proxy shop https://shop.localhost:1355
 
 Then open `http://shop.test`.
 If Herd has `.test`, give Corral a second TLD, for example `internal`, and open `http://shop.internal`.
-For `.localhost` URLs, Corral connects to `127.0.0.1` and sends the original name.
+For `.localhost` URLs, Corral connects to `127.0.0.1` (or `::1`) and sends the original name.
 portless needs the name to select the app.
 
 Corral also lists the apps that portless serves.

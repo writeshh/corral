@@ -148,6 +148,17 @@ final class Model: ObservableObject {
         guard busy == nil else { return }
         let corral = corral
         onQueue {
+            // A `corral run` that got a SIGKILL could not remove its proxy. Put the old config back.
+            let stale = corral.cleanStaleRuns()
+            if !stale.isEmpty {
+                var message: String?
+                do { try corral.apply() } catch { message = error.localizedDescription }
+                let snap = Snapshot(corral)
+                Task { @MainActor in
+                    self.snap = snap
+                    if let message { self.error = message } else { self.notice = "Removed the proxy of a stopped corral run: \(stale.joined(separator: ", "))." }
+                }
+            }
             guard corral.wantsRunning else { return }
             let down = corral.status().filter { !$0.1 }.map(\.0)
             guard !down.isEmpty else { return }

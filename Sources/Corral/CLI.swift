@@ -534,15 +534,48 @@ enum CLI {
     /// The command that `corral run` started. A SIGTERM to Corral goes on to it.
     nonisolated(unsafe) static var child: pid_t = 0
 
+    /// Vite and Astro ignore PORT. These flags give them the port, for a direct call (`vite`, `npx astro dev`) or a
+    /// package.json script (`npm run dev`). 127.0.0.1, because both listen on ::1 only by default.
+    static func portFlags(_ command: [String], port: Int, cwd: String) -> [String] {
+        guard !command.contains(where: { $0 == "--port" || $0.hasPrefix("--port=") }) else { return [] }
+        func flags(_ words: [String]) -> [String]? {
+            let words = Array(words.drop { $0.contains("=") || ["npx", "bunx", "pnpx"].contains($0) }) // NODE_ENV=… npx vite
+            switch (words.first, words.dropFirst().first) {
+            case ("vite", _): return ["--port", "\(port)", "--strictPort", "--host", "127.0.0.1"]
+            case ("astro", "dev"): return ["--port", "\(port)", "--host", "127.0.0.1"]
+            default: return nil
+            }
+        }
+        if let direct = flags(command) { return direct }
+        guard let manager = command.first, ["npm", "pnpm", "yarn", "bun"].contains(manager) else { return [] }
+        var rest = command.dropFirst()
+        if rest.first == "run" || rest.first == "run-script" { rest = rest.dropFirst() }
+        guard let script = rest.first,
+              let data = FileManager.default.contents(atPath: cwd + "/package.json"),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let line = (json["scripts"] as? [String: String])?[script],
+              let extra = flags(line.split(separator: " ").map(String.init)) else { return [] }
+        // npm passes arguments to the script only after "--". pnpm, yarn and bun pass them as they are.
+        return manager == "npm" && !rest.contains("--") ? ["--"] + extra : extra
+    }
+
     /// Serves the command's port as https://<name>.<tld> while the command runs, then removes the proxy again.
-    /// An existing proxy or site with the same name comes back when the command stops.
-    // ponytail: a SIGKILL to Corral leaves the proxy in config.json. `corral unproxy <name>` removes it.
+    /// An existing proxy or site with the same name comes back when the command stops. A record file lets
+    /// `start` and the app undo this after a SIGKILL, which skips the cleanup here.
     static func runDevServer(_ corral: Corral, name: String, port: Int?, command: [String]) throws -> Int32 {
+        if !corral.cleanStaleRuns().isEmpty { try corral.save() } // a killed run of this name must not be "before"
         let port = try port ?? freePort()
+        let added = portFlags(command, port: port, cwd: FileManager.default.currentDirectoryPath)
+        let command = command + added
         let upstream = URL(string: "http://127.0.0.1:\(port)")!
         let before = (proxy: corral.config.proxies[name], secured: corral.config.secured.contains(name))
         corral.config.proxies[name] = upstream.absoluteString
+        let record = corral.runRecordPath(name)
+        try corral.mkdirs(corral.run)
+        try JSONEncoder().encode(Corral.RunRecord(pid: getpid(), proxy: before.proxy, secured: before.secured))
+            .write(to: URL(fileURLWithPath: record))
         defer {
+            try? FileManager.default.removeItem(atPath: record)
             // Read config.json again: other commands may have changed it while the server ran.
             let now = Corral()
             now.config.proxies[name] = before.proxy
@@ -554,7 +587,9 @@ enum CLI {
         let site = Site(name: name, proxy: upstream)
         try corral.setSecure(site, true)
         if !corral.isRunning { try corral.start() }
-        print("\(corral.url(site).absoluteString) -> \(upstream.absoluteString)\n")
+        print("\(corral.url(site).absoluteString) -> \(upstream.absoluteString)")
+        print(added.isEmpty ? "" : "Added to the command: \(added.joined(separator: " "))\n")
+        fflush(stdout) // before the command writes: a pipe would hold these lines until Corral exits
 
         // Ctrl-C and a closed terminal reach the command too. Corral waits for it to stop, then cleans up.
         signal(SIGINT) { _ in }

@@ -6,6 +6,13 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A proxy site works when its server listens only on `::1`. Vite, Astro, and other Node servers do this for `localhost`. nginx tries `127.0.0.1` first, then `::1`.
+- `corral run` gives the port to Vite and Astro with `--port` and `--host 127.0.0.1`, also through a `package.json` script. They do not read `PORT`.
+- A `corral run` that was killed with SIGKILL no longer leaves its proxy. The menu bar app puts the old proxy back within 15 seconds, and `corral start` does it too.
+- `corral run` prints its address before the server output, also when the output goes to a pipe.
+
 ## [0.6.0] - 2026-11-10
 
 ### Added
