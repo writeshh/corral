@@ -764,6 +764,78 @@ import Testing
     #expect(c.config.links["blog"] == other + "/blog" && c.config.secured.contains("blog"))
 }
 
+@Test func mailCommands() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+
+    // Nested multipart: text + HTML alternative, then a base64 PDF with an RFC 2231 name, a QP text file, an encoded-word name.
+    let pdf = Data("%PDF-1.4 fake \u{00}\u{ff}".utf8)
+    let raw = """
+    X-Corral-Inbox: shop\r
+    Subject: Invoice\r
+    Content-Type: multipart/mixed; boundary="outer"\r
+    \r
+    preamble\r
+    --outer\r
+    Content-Type: multipart/alternative; boundary=inner\r
+    \r
+    --inner\r
+    Content-Type: text/plain\r
+    \r
+    Hello\r
+    --inner\r
+    Content-Type: text/html\r
+    \r
+    <p>Hello</p>\r
+    --inner--\r
+    --outer\r
+    Content-Type: application/pdf\r
+    Content-Disposition: attachment; filename*=utf-8''R%C3%A4kning%201.pdf\r
+    Content-Transfer-Encoding: base64\r
+    \r
+    \(pdf.base64EncodedString(options: .lineLength64Characters))\r
+    --outer\r
+    Content-Type: text/plain; name="notes.txt"\r
+    Content-Transfer-Encoding: quoted-printable\r
+    \r
+    caf=C3=A9 and a long=\r
+     line\r
+    --outer\r
+    Content-Type: image/png; name="=?utf-8?B?w7ZsLnBuZw==?="\r
+    Content-Disposition: inline\r
+    Content-Transfer-Encoding: base64\r
+    \r
+    iVBORw==\r
+    --outer--\r
+    epilogue\r
+
+    """
+    let files = MailMessage.attachments(Data(raw.utf8))
+    #expect(files.map(\.name) == ["Räkning 1.pdf", "notes.txt", "öl.png"])
+    #expect(files[0].data == pdf)
+    #expect(String(decoding: files[1].data, as: UTF8.self) == "café and a long line")
+    #expect(files[2].data == Data([0x89, 0x50, 0x4E, 0x47]))
+    #expect(MailMessage.attachments(Data("Subject: plain\r\n\r\nNo parts.\r\n".utf8)).isEmpty)
+
+    // A name that exists gets a number. A path in the name never leaves the folder.
+    let first = try CLI.saveAttachment("../a.pdf", Data("1".utf8), in: tmp.path)
+    let second = try CLI.saveAttachment("a.pdf", Data("2".utf8), in: tmp.path)
+    #expect(first == tmp.path + "/a.pdf" && second == tmp.path + "/a 2.pdf")
+
+    // mail:wait sees only new files, and only for its inbox.
+    let mail = tmp.appendingPathComponent("mail")
+    try FileManager.default.createDirectory(at: mail, withIntermediateDirectories: true)
+    try Data("X-Corral-Inbox: old\r\nSubject: Old\r\n\r\n".utf8).write(to: mail.appendingPathComponent("1-old.eml"))
+    DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+        try? Data("X-Corral-Inbox: blog\r\nSubject: Other\r\n\r\n".utf8).write(to: mail.appendingPathComponent("2-a.eml"))
+        try? Data("X-Corral-Inbox: shop\r\nSubject: Welcome\r\n\r\n".utf8).write(to: mail.appendingPathComponent("3-b.eml"))
+    }
+    #expect(try CLI.waitForMail(in: mail, inbox: "shop", timeout: 5).subject == "Welcome")
+    #expect(throws: CorralError.self) { try CLI.waitForMail(in: mail, inbox: nil, timeout: 0.3) }
+
+}
+
 @Test func mailListAndLinks() throws {
     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: tmp) }

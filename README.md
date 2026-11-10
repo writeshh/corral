@@ -102,6 +102,8 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral mail [inbox]` | List the mail that Corral caught, newest first. See [Insights](#insights). |
 | `corral mail:show [n]` | Print message `n` (1 is the newest) as a raw `.eml` file. |
 | `corral mail:links [n]` | Print the links in message `n`, for example a link to verify an email address. |
+| `corral mail:wait [inbox] [--timeout s]` | Wait for the next mail, for example in a test after a sign-up, and print it like `corral mail`. Without an inbox, any new mail counts. It fails after 60 seconds, or after `--timeout`. |
+| `corral mail:attachments [n] [folder]` | Save the attachments of message `n` in a folder (the current folder by default). |
 | `corral mail:clear` | Delete all caught mail. |
 | `corral tools` | Show the versions of `composer`, `wp`, and `laravel`. See [Bundled tools](#bundled-tools). |
 | `corral tools:update [name]` | Update `composer`, `wp`, or `laravel` (all by default). |
@@ -232,7 +234,7 @@ Insights shows information from your sites. All of it stays on your Mac.
 
 - **Dumps**: turn on "Send dump() to Corral". Then `dump()` and `dd()` in Laravel and Symfony sites show in Insights, not in the page. Corral uses the server mode of Symfony VarDumper on port 9912. Insights keeps the newest 1000 dumps.
 - **Logs**: the Laravel logs in `storage/logs`, the WordPress `wp-content/debug.log`, and the nginx and PHP-FPM logs. Insights reads the file again every 2 seconds.
-- **Mail**: turn on "Catch mail on 127.0.0.1:2525". Corral receives each message that a site sends with SMTP to this address, and keeps the newest 1000. Click a message to preview it. For a Laravel site, click "Send Mail to Corral" in the site menu. Corral then changes the `MAIL_` values in `.env`, and keeps the original file as `.env.corral.bak`. In a terminal, `corral mail` lists the messages, and `corral mail:links` prints the links of the newest one.
+- **Mail**: turn on "Catch mail on 127.0.0.1:2525". Corral receives each message that a site sends with SMTP to this address, and keeps the newest 1000. Click a message to preview it. For a Laravel site, click "Send Mail to Corral" in the site menu. Corral then changes the `MAIL_` values in `.env`, and keeps the original file as `.env.corral.bak`. In a terminal, `corral mail` lists the messages, `corral mail:links` prints the links of the newest one, and `corral mail:attachments` saves its attachments. In a test, `corral mail:wait <inbox>` waits until the site sends the next message.
 - **Requests**: turn on "Record requests", or run `corral queries on`. Each request of a Laravel or WordPress site then records its SQL queries (with the time and the code that ran each one) and its outgoing HTTP calls (with status and time). Laravel sites also record cache events (hits, misses, writes, deletes, grouped by key) and queue events (jobs queued, and jobs that run or fail in the request). Insights shows the newest 200 requests, marks queries slower than 100 ms and HTTP calls slower than 1 s, and counts repeated queries (often an N+1 problem). `corral queries:list [n]` prints the newest `n` requests. Queue workers (`php artisan queue:work`) run outside PHP-FPM, so Corral does not record the jobs that they run.
 
 How the recording works:

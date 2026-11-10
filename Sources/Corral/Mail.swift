@@ -80,6 +80,55 @@ extension MailMessage {
             .map { String($0.0).replacingOccurrences(of: "&amp;", with: "&").trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?")) }
             .reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
+
+    /// The parts of a raw message that have a file name, decoded, in order. Nested multipart bodies count too.
+    // ponytail: no RFC 2231 continuations (filename*0=…). Mailers use them only for very long names.
+    static func attachments(_ raw: Data) -> [(name: String, data: Data)] {
+        // Latin-1 keeps every byte, so an 8bit part comes back unchanged.
+        let text = String(data: raw, encoding: .isoLatin1) ?? ""
+        return entity(text.replacingOccurrences(of: "\r\n", with: "\n"))
+    }
+
+    private static func entity(_ text: String) -> [(name: String, data: Data)] {
+        let split = text.range(of: "\n\n")
+        let head = split.map { String(text[..<$0.lowerBound]) } ?? text
+        let body = split.map { String(text[$0.upperBound...]) } ?? ""
+        let fields = headers(head.replacingOccurrences(of: "\n", with: "\r\n"))
+        let type = fields["content-type"] ?? "text/plain"
+        if type.lowercased().hasPrefix("multipart/"), let boundary = param(type, "boundary") {
+            var parts = ("\n" + body).components(separatedBy: "\n--" + boundary).dropFirst() // the first piece is the preamble
+            if let end = parts.firstIndex(where: { $0.hasPrefix("--") }) { parts = parts[..<end] }
+            return parts.flatMap { part in entity(part.firstIndex(of: "\n").map { String(part[part.index(after: $0)...]) } ?? "") }
+        }
+        guard let name = fields["content-disposition"].flatMap({ param($0, "filename") }) ?? param(type, "name") else { return [] }
+        let data: Data? = switch fields["content-transfer-encoding"]?.lowercased().trimmingCharacters(in: .whitespaces) {
+        case "base64": Data(base64Encoded: body, options: .ignoreUnknownCharacters)
+        case "quoted-printable": quotedPrintable(body)
+        default: body.data(using: .isoLatin1)
+        }
+        return data.map { [(name, $0)] } ?? []
+    }
+
+    /// A header parameter such as filename="a.pdf", name=a.pdf, or filename*=utf-8''%C3%A4.pdf (RFC 2231).
+    static func param(_ header: String, _ key: String) -> String? {
+        guard let regex = try? Regex("(?i)(?:^|;)\\s*\(key)(\\*?)=\\s*(\"[^\"]*\"|[^;]+)", as: (Substring, Substring, Substring).self),
+              let m = header.firstMatch(of: regex) else { return nil }
+        var value = m.2.trimmingCharacters(in: .whitespaces)
+        if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 { value = String(value.dropFirst().dropLast()) }
+        if m.1 == "*" { return value.components(separatedBy: "''").last?.removingPercentEncoding ?? value }
+        return decodeWords(value)
+    }
+
+    static func quotedPrintable(_ text: String) -> Data {
+        let chars = Array(text.replacingOccurrences(of: "=\n", with: "").utf8)
+        var out = Data(), i = 0
+        while i < chars.count {
+            if chars[i] == UInt8(ascii: "="), i + 2 < chars.count, let b = UInt8(String(decoding: chars[i+1...i+2], as: UTF8.self), radix: 16) {
+                out.append(b); i += 3
+            } else { out.append(chars[i]); i += 1 }
+        }
+        return out
+    }
 }
 
 /// A minimal SMTP server on 127.0.0.1:2525, Herd's mail port. It accepts every message and every login.
@@ -115,7 +164,8 @@ final class MailServer: ObservableObject {
             listener.newConnectionHandler = { [weak self] connection in
                 SMTPSession(connection, queue: queue) { inbox, data in
                     let name = "\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString.prefix(8)).eml"
-                    try? (Data("X-Corral-Inbox: \(inbox)\r\n".utf8) + data).write(to: dir.appendingPathComponent(name))
+                    // Atomic: `corral mail:wait` must never read half a message.
+                    try? (Data("X-Corral-Inbox: \(inbox)\r\n".utf8) + data).write(to: dir.appendingPathComponent(name), options: .atomic)
                     Task { @MainActor in self?.reload() }
                 }.start()
             }

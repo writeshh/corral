@@ -53,6 +53,8 @@ enum CLI {
                                    the installer. Corral adds --no-boost unless you pass --boost.
       mail [inbox]                 list caught mail, newest first (the menu bar app catches it on 127.0.0.1:2525)
       mail:show [n] | mail:links [n]   print message n (1 = newest) as raw .eml, or only its links
+      mail:wait [inbox] [--timeout s]  wait for the next mail (60 s by default) and print it as in `mail`
+      mail:attachments [n] [folder]    save the attachments of message n (1 = newest) to the folder (current by default)
       mail:clear                   delete all caught mail
       tools                        versions of composer, wp, and laravel
       tools:update [name]          update composer, wp, or laravel (all by default). laravel:update is the same for laravel.
@@ -348,9 +350,23 @@ enum CLI {
             case "mail":
                 let list = MailMessage.all(in: URL(fileURLWithPath: corral.mailDir)).filter { arg1 == nil || $0.inbox == arg1 }
                 if list.isEmpty { print(corral.config.mail ? "No mail." : "No mail. Turn on mail in Insights > Mail in the menu bar app.") }
-                for (i, m) in list.enumerated() {
-                    print("\(i + 1)\t\(m.date.formatted(date: .numeric, time: .shortened))\t\(m.inbox.isEmpty ? "-" : m.inbox)\t\(m.from)\t\(m.subject)")
+                for (i, m) in list.enumerated() { print(mailLine(i + 1, m)) }
+            case "mail:wait":
+                var rest = Array(args.dropFirst()), timeout = 60.0
+                if let i = rest.firstIndex(of: "--timeout") {
+                    guard i + 1 < rest.count, let t = Double(rest[i + 1]), t > 0 else { throw CorralError("--timeout needs a number of seconds.") }
+                    timeout = t
+                    rest.removeSubrange(i...i + 1)
                 }
+                guard corral.config.mail else { throw CorralError("Corral does not catch mail now. Turn it on in Insights > Mail in the menu bar app.") }
+                let message = try waitForMail(in: URL(fileURLWithPath: corral.mailDir), inbox: rest.first, timeout: timeout)
+                print(mailLine(1, message))
+            case "mail:attachments":
+                let list = MailMessage.all(in: URL(fileURLWithPath: corral.mailDir))
+                guard let n = Int(arg1 ?? "1"), list.indices.contains(n - 1) else { throw CorralError("No message \(arg1 ?? "1"). Run corral mail to see the list.") }
+                let files = MailMessage.attachments(try Data(contentsOf: list[n - 1].url))
+                if files.isEmpty { print("Message \(n) has no attachments.") }
+                for file in files { print(try saveAttachment(file.name, file.data, in: absolute(arg2 ?? ".", cwd))) }
             case "mail:show", "mail:links":
                 let list = MailMessage.all(in: URL(fileURLWithPath: corral.mailDir))
                 guard let n = Int(arg1 ?? "1"), list.indices.contains(n - 1) else { throw CorralError("No message \(arg1 ?? "1"). Run corral mail to see the list.") }
@@ -609,6 +625,41 @@ enum CLI {
             FileHandle.standardError.write(Data("corral: could not run \(command[0]): \(error.localizedDescription)\n".utf8))
         }
         return status
+    }
+
+    /// One line of `corral mail`: number, date, inbox, sender, subject.
+    static func mailLine(_ n: Int, _ m: MailMessage) -> String {
+        "\(n)\t\(m.date.formatted(date: .numeric, time: .shortened))\t\(m.inbox.isEmpty ? "-" : m.inbox)\t\(m.from)\t\(m.subject)"
+    }
+
+    /// Waits for an .eml file that was not in dir at the start, optionally for one inbox. Reads only file names
+    /// while it waits. The server writes each file atomically, so a new name is a complete message.
+    static func waitForMail(in dir: URL, inbox: String?, timeout: TimeInterval) throws -> MailMessage {
+        func names() -> Set<String> { Set((try? FileManager.default.contentsOfDirectory(atPath: dir.path))?.filter { $0.hasSuffix(".eml") } ?? []) }
+        var seen = names()
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            for name in names().subtracting(seen).sorted() {
+                let message = MailMessage(url: dir.appendingPathComponent(name))
+                if inbox == nil || message.inbox == inbox { return message }
+                seen.insert(name)
+            }
+            usleep(200_000)
+        }
+        throw CorralError("No new mail\(inbox.map { " for \($0)" } ?? "") in \(Int(timeout)) seconds.")
+    }
+
+    /// Writes one attachment into folder and returns its path. A name that exists gets " 2", " 3", … before the extension.
+    static func saveAttachment(_ name: String, _ data: Data, in folder: String) throws -> String {
+        let clean = (name.replacingOccurrences(of: ":", with: "-") as NSString).lastPathComponent
+        let base = clean.isEmpty || clean.hasPrefix(".") ? "attachment" + clean : clean
+        let stem = (base as NSString).deletingPathExtension, ext = (base as NSString).pathExtension
+        var path = folder + "/" + base, n = 2
+        while FileManager.default.fileExists(atPath: path) {
+            path = folder + "/" + stem + " \(n)" + (ext.isEmpty ? "" : "." + ext); n += 1
+        }
+        try data.write(to: URL(fileURLWithPath: path), options: .withoutOverwriting)
+        return path
     }
 
     /// Runs a command in the current folder with the terminal attached, so the user sees its output.

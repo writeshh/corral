@@ -6,6 +6,11 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `corral mail:wait [inbox] [--timeout s]` waits for the next caught mail and prints it. A test can sign up a user, then wait for the welcome mail.
+- `corral mail:attachments [n] [folder]` saves the attachments of a caught message, with their original names.
+
 ### Fixed
 
 - An empty box no longer shows in front of the menu bar panel when it first opens after a launch. macOS password AutoFill took the "Filter sites" field for a login field and opened its suggestion window. The field is now a search field, which AutoFill skips.
