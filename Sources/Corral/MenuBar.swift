@@ -3,6 +3,19 @@ import SwiftUI
 
 /// What the panel shows. Built on the work queue after each job, then published on the main actor.
 struct Snapshot: Sendable {
+    /// What a site is, from the files in its folder. The panel shows it as a small tile, so sites tell apart at a glance.
+    enum Kind: Sendable {
+        case laravel, wordpress, proxy, php
+
+        init(_ site: Site) {
+            let has = { FileManager.default.fileExists(atPath: site.path + "/" + $0) }
+            if site.proxy != nil { self = .proxy }
+            else if has("artisan") { self = .laravel }
+            else if has("wp-config.php") || has("wp-content") || has("wp-load.php") || has("web/wp-config.php") { self = .wordpress }
+            else { self = .php }
+        }
+    }
+
     struct Row: Identifiable, Sendable {
         let site: Site
         let host: String
@@ -11,6 +24,7 @@ struct Snapshot: Sendable {
         let php: String?
         let secured: Bool
         let isolated: String?
+        let kind: Kind
         var id: String { site.name }
     }
 
@@ -55,7 +69,7 @@ struct Snapshot: Sendable {
             let version = s.proxy == nil ? c.php(for: s, php) : nil
             return Row(site: s, host: c.host(s), url: c.url(s),
                        detail: s.proxy == nil ? shortPath : "Proxy to \(s.path)",
-                       php: version, secured: c.config.secured.contains(s.name), isolated: c.config.isolated[s.name])
+                       php: version, secured: c.config.secured.contains(s.name), isolated: c.config.isolated[s.name], kind: Kind(s))
         }
         services = c.status().map { (name: $0.0, up: $0.1) }
         versions = Corral.sortVersions(php.keys)
@@ -982,6 +996,39 @@ struct ServiceChip: View {
 // Plain property wrappers (@StateObject, @Published) keep the app buildable without Xcode.
 final class Hover: ObservableObject { @Published var on = false }
 
+/// A small rounded tile for the kind of site: a letter for a framework, a symbol otherwise. The color is
+/// low-key (a tint, not a fill), so a long list stays calm and the names stay the strongest element.
+struct KindTile: View {
+    let kind: Snapshot.Kind
+
+    var body: some View {
+        let (color, mark): (Color, String?) = switch kind {
+        case .laravel: (.red, "L")
+        case .wordpress: (.blue, "W")
+        case .proxy: (.teal, nil)
+        case .php: (.gray, nil)
+        }
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(color.opacity(0.16))
+            .frame(width: 20, height: 20)
+            .overlay {
+                if let mark {
+                    Text(mark).font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(color)
+                } else {
+                    Image(systemName: kind == .proxy ? "arrow.left.arrow.right" : "chevron.left.forwardslash.chevron.right")
+                        .font(.system(size: 9, weight: .bold)).foregroundStyle(color)
+                }
+            }
+            .accessibilityLabel(kind.name)
+    }
+}
+
+extension Snapshot.Kind {
+    var name: String {
+        switch self { case .laravel: "Laravel"; case .wordpress: "WordPress"; case .proxy: "Proxy"; case .php: "PHP" }
+    }
+}
+
 struct SiteRow: View {
     let row: Snapshot.Row
     @ObservedObject var model: Model
@@ -989,42 +1036,38 @@ struct SiteRow: View {
     private var hovering: Bool { hover.on }
 
     var body: some View {
+        // One line for each site: the tile says what it is, the name says where it is. The group header holds the
+        // folder, so the path moves to the tooltip, and twice as many sites fit. Only a pinned PHP version shows:
+        // the footer already shows the global one.
         Button { NSWorkspace.shared.open(row.url) } label: {
-            HStack(spacing: 10) {
-                Image(systemName: row.site.proxy == nil ? "folder" : "arrow.left.arrow.right")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Text(row.host).font(.body.weight(.medium)).lineLimit(1)
-                        if row.secured {
-                            Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary)
-                                .accessibilityLabel("HTTPS")
-                        }
-                    }
-                    Text(row.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            HStack(spacing: 9) {
+                KindTile(kind: row.kind)
+                Text(row.host).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                if row.secured {
+                    Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.tertiary)
+                        .accessibilityLabel("HTTPS")
                 }
                 Spacer(minLength: 8)
-                if let php = row.php {
-                    Text(php)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(row.isolated == nil ? .secondary : .primary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(.quaternary.opacity(row.isolated == nil ? 0.4 : 1), in: .capsule)
-                        .help(row.isolated == nil ? "Global PHP version" : "PHP version pinned to this site")
+                if let proxy = row.site.proxy {
+                    Text(proxy.port.map { ":\($0)" } ?? proxy.host ?? "").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                if let pinned = row.isolated {
+                    Text("PHP \(pinned)")
+                        .font(.caption.weight(.medium).monospacedDigit())
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(.quaternary, in: .rect(cornerRadius: 4))
+                        .help("PHP version pinned to this site")
                 }
                 actions.opacity(hovering ? 1 : 0)
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .contentShape(.rect)
         }
         .buttonStyle(RowStyle(hovering: hovering))
         .onHover { hover.on = $0 }
         .contextMenu { menuItems }
-        .help("Open \(row.url.absoluteString)")
+        .help("Open \(row.url.absoluteString)\n\(row.detail)")
     }
 
     private var actions: some View {
