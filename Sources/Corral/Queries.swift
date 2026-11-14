@@ -221,7 +221,7 @@ struct QueriesView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Toggle("Record requests", isOn: Binding(get: { model.snap.queries }, set: setQueries))
+                Toggle("Record requests", isOn: Binding(get: { model.snap.queries }, set: setQueries)).toggleStyle(CorralToggleStyle(showsLabel: true))
                     .help("Laravel and WordPress sites record their SQL queries and outgoing HTTP calls. Laravel sites also record cache and queue events.")
                 Spacer()
                 Text("\(log.requests.count) of \(QueryLog.limit)").font(.caption).foregroundStyle(.secondary)
@@ -260,7 +260,7 @@ struct QueriesView: View {
                 HStack(spacing: 6) {
                     Text(r.counts).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     if r.repeated > 0 {
-                        Text("\(r.repeated) repeated").font(.caption.weight(.medium)).foregroundStyle(.orange)
+                        Text("\(r.repeated) repeated").font(.caption.weight(.medium)).foregroundStyle(Color.warning)
                             .help("Queries with the same SQL ran more than once. This is often an N+1 problem.")
                     }
                 }
@@ -272,9 +272,9 @@ struct QueriesView: View {
     /// A failed request must not look like a good one: 4xx orange, 5xx red as a filled badge, others quiet text.
     private func statusBadge(_ status: Int?) -> some View {
         let code = status ?? 0
-        let color: Color = code >= 500 ? .red : code >= 400 ? .orange : .secondary
+        let color: Color = code >= 500 ? Color.danger : code >= 400 ? Color.warning : .secondary
         return Text(status.map(String.init) ?? "–").font(.caption2.weight(.bold).monospacedDigit())
-            .foregroundStyle(code >= 400 ? .white : color)
+            .foregroundStyle(code >= 400 ? Color.onDanger : color)
             .frame(width: 34)
             .padding(.vertical, 1)
             .background(code >= 400 ? AnyShapeStyle(color) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 4))
@@ -289,8 +289,8 @@ struct QueriesView: View {
                     Text(call.method).font(.caption2.weight(.bold))
                     Text(call.url).font(.system(.callout, design: .monospaced)).textSelection(.enabled).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                     Text(call.status.map(String.init) ?? (call.error ?? "failed")).font(.caption.monospacedDigit())
-                        .foregroundStyle((call.status ?? 500) >= 400 ? .red : .secondary)
-                    if let ms = call.ms { Text("\(ms.formatted(.number.precision(.fractionLength(0)))) ms").font(.caption.monospacedDigit()).foregroundStyle(ms >= 1000 ? .red : .secondary) }
+                        .foregroundStyle((call.status ?? 500) >= 400 ? Color.danger : .secondary)
+                    if let ms = call.ms { Text("\(ms.formatted(.number.precision(.fractionLength(0)))) ms").font(.caption.monospacedDigit()).foregroundStyle(ms >= 1000 ? Color.danger : .secondary) }
                 }
             }
         }
@@ -304,7 +304,7 @@ struct QueriesView: View {
                     Text(key).font(.system(.callout, design: .monospaced)).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
                     Spacer()
                     Text(Dictionary(grouping: ops, by: \.op).sorted { $0.key < $1.key }.map { "\($0.value.count) \($0.key)" }.joined(separator: ", "))
-                        .font(.caption.monospacedDigit()).foregroundStyle(ops.count > 3 ? .orange : .secondary)
+                        .font(.caption.monospacedDigit()).foregroundStyle(ops.count > 3 ? Color.warning : .secondary)
                 }
             }
         }
@@ -320,10 +320,10 @@ struct QueriesView: View {
 
     private func jobRow(_ job: QueryRequest.Job) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(job.event).font(.caption2.weight(.bold)).foregroundStyle(job.event == "failed" ? Color.red : Color.primary)
+            Text(job.event).font(.caption2.weight(.bold)).foregroundStyle(job.event == "failed" ? Color.danger : Color.primary)
             Text(job.job).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
             Spacer()
-            Text(job.error ?? job.queue ?? "").font(.caption).foregroundStyle(job.error == nil ? Color.secondary : Color.red).lineLimit(2)
+            Text(job.error ?? job.queue ?? "").font(.caption).foregroundStyle(job.error == nil ? Color.secondary : Color.danger).lineLimit(2)
         }
     }
 
@@ -337,7 +337,7 @@ struct QueriesView: View {
                 Text(q.filled).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("\(q.ms.formatted(.number.precision(.fractionLength(2)))) ms").font(.caption.monospacedDigit())
-                    .foregroundStyle(q.ms >= 100 ? .red : .secondary)
+                    .foregroundStyle(q.ms >= 100 ? Color.danger : .secondary)
             }
             if let caller = q.caller, !caller.isEmpty {
                 // Laravel gives file:line of the first frame outside vendor/. WordPress gives function names.

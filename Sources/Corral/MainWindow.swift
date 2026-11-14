@@ -38,6 +38,7 @@ struct MainView: View {
                     default: SitesView(model: model)
                     }
                 }
+                .buttonStyle(CorralButtonStyle())
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 StatusLine(model: model) // jobs, errors and notices show where the user acted
             }
@@ -173,16 +174,21 @@ struct SearchField: View {
 struct CorralButtonStyle: ButtonStyle {
     var primary = false
     var danger = false // an action that removes data
+    var quiet = false  // a toolbar action: no fill and no edge
+    var active = false // a quiet button that is on
     @Environment(\.isEnabled) private var enabled
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let ink = primary ? Color.onBrand : danger ? Color.danger : active ? Color.brandInk : quiet ? Color.inkMuted : Color.ink
+        let fill = primary ? Color.brand : configuration.isPressed ? Color.surfacePressed : quiet ? Color.clear : Color.surfaceRaised
+        return configuration.label
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(primary ? Color.onBrand : danger ? Color.danger : Color.ink)
-            .padding(.horizontal, 12)
+            .foregroundStyle(ink)
+            .padding(.horizontal, quiet ? 6 : 12)
             .frame(height: 24)
-            .background(primary ? Color.brand : configuration.isPressed ? Color.surfacePressed : Color.surfaceRaised, in: .rect(cornerRadius: 6))
-            .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(primary ? Color.brand : Color.borderStrong) }
+            .background(fill, in: .rect(cornerRadius: 6))
+            .overlay { if !quiet { RoundedRectangle(cornerRadius: 6).strokeBorder(primary ? Color.brand : Color.borderStrong) } }
+            .contentShape(.rect)
             .opacity(enabled ? (configuration.isPressed && primary ? 0.85 : 1) : 0.45)
     }
 }

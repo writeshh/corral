@@ -670,6 +670,9 @@ extension Color {
     /// A service stopped. Yellow, so it does not look like the brand.
     static let warning = Color(dark: 0xF5C542, light: 0x8A6100)
     static let danger = Color(dark: 0xFF6B5E, light: 0xC0291D)
+    static let onDanger = Color(dark: 0x111111, light: 0xFFFFFF)
+    /// The accent as text or as a symbol, for a control that is on.
+    static let brandInk = Color(dark: 0xF2762A, light: 0xAD4505)
     // The glyph colors of the kind tile.
     static let kindLaravel = Color(dark: 0xFF8A7A, light: 0xB8321F)
     static let kindWordPress = Color(dark: 0x6FB1FF, light: 0x1F5FB8)

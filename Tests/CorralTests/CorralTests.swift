@@ -576,9 +576,14 @@ import Testing
     #expect(String(dump.styled.characters) == "array:1 [\n  0 => hi\n]")
     #expect(dump.styled.runs.compactMap(\.foregroundColor) == [.cyan, .blue, .green])
 
-    let log = LogsView.highlight("[2026-10-29 08:00:00] local.ERROR: boom\n#0 /app/x.php(12): f()\n2026/10/29 08:00:02 [warn] slow")
-    #expect(String(log.characters).hasPrefix("[2026-10-29 08:00:00] local.ERROR: boom"))
-    #expect(log.runs.compactMap(\.foregroundColor) == [.secondary, .red, .secondary, .orange, .secondary, .orange]) // a line's newline takes its colour
+    // Log entries: level and time from each format, tags and the site folder removed, equal entries folded, frames kept.
+    let notice = "[10-Nov-2026 06:19:19 UTC] PHP Notice:  Loading for the <code>shop</code> domain was <strong>early</strong>. in /sites/shop/wp-includes/functions.php on line 6131"
+    let log = LogEntry.parse("\(notice)\n\(notice)\n[2026-10-29 08:00:00] local.ERROR: boom\n#0 /sites/shop/x.php(12): f()\n2026/10/29 08:00:02 [warn] 401#0: slow\n[10-Nov-2026 06:19:20 UTC] [ Timber ] Error loading /sites/shop/a.jpg", root: "/sites/shop")
+    #expect(log.map(\.level) == [.notice, .error, .warning, .plain])
+    #expect(log.map(\.count) == [2, 1, 1, 1])
+    #expect(log[0].message == "Loading for the `shop` domain was early. wp-includes/functions.php:6131")
+    #expect(log[1].time == "08:00:00" && log[1].message == "boom" && log[1].detail == ["#0 x.php(12): f()"])
+    #expect(log[2].message == "slow" && log[3].message == "[ Timber ] Error loading a.jpg")
 }
 
 @Test func mailHeadersAndEnv() throws {

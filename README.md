@@ -241,7 +241,7 @@ To open Corral at login, turn on Settings > General > "Open Corral at login".
 Insights shows information from your sites. All of it stays on your Mac.
 
 - **Dumps**: turn on "Send dump() to Corral". Then `dump()` and `dd()` in Laravel and Symfony sites show in Insights, not in the page. Corral uses the server mode of Symfony VarDumper on port 9912. Insights keeps the newest 1000 dumps.
-- **Logs**: the Laravel logs in `storage/logs`, the WordPress `wp-content/debug.log`, and the nginx and PHP-FPM logs. Insights reads the file again every 2 seconds.
+- **Logs**: the Laravel logs in `storage/logs`, the WordPress `wp-content/debug.log`, and the nginx and PHP-FPM logs. Insights reads the file again every 2 seconds. Each entry shows its time, level and message, and a filter shows only warnings or only errors.
 - **Mail**: turn on "Catch mail on 127.0.0.1:2525". Corral receives each message that a site sends with SMTP to this address, and keeps the newest 1000. Select a message and press Space to preview it, or double-click it. Delete moves it to the Trash. For a Laravel or WordPress site, click "Send Mail to Corral" in the site menu, or run `corral mail:use` in the site folder. The menu item also turns on mail capture.
   - Laravel: Corral changes the `MAIL_` values in `.env`, and keeps the original file as `.env.corral.bak`.
   - WordPress: Corral adds the must-use plugin `wp-content/mu-plugins/corral-mail.php`. It sends every `wp_mail()` to Corral, also when an SMTP plugin is active. Delete the file to send mail as before.

@@ -101,7 +101,7 @@ struct ProfilesView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Toggle("Profiler", isOn: Binding(get: { on }, set: setProfiler))
+                Toggle("Profiler", isOn: Binding(get: { on }, set: setProfiler)).toggleStyle(CorralToggleStyle(showsLabel: true))
                     .help("Requests with an XDEBUG_PROFILE cookie or query argument run in the debug pool and write a cachegrind file.")
                 Spacer()
                 Text(ByteCountFormatter.string(fromByteCount: Int64(list.profiles.reduce(0) { $0 + $1.size }), countStyle: .file))

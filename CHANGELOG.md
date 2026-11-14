@@ -6,6 +6,17 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Logs shows each entry as time, level and message. A filter shows all entries, only warnings, or only errors, with a count of the errors.
+- Equal log entries that follow each other show as one entry with a count.
+
+### Changed
+
+- Log messages show without HTML tags, and paths show without the site folder. The time is local time. The full time stamp is in the tooltip.
+- The Logs toolbar shows the file name, not the full path, and "Follow Browser" has a label.
+- The Insights views use the buttons, switches and status colors of the Corral design system.
+
 ## [0.9.0] - 2026-11-10
 
 ### Added

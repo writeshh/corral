@@ -59,14 +59,23 @@ struct SurfaceWindow: NSViewRepresentable {
 
 /// The tabs of the design system: one raised group, and the active tab on the pressed surface.
 struct Tabs: View {
-    let items: [(String, String, String)] // id, title, symbol
+    let items: [(String, String, String)] // id, title, symbol (empty for none)
     @Binding var selection: String
+    var badges: [String: Int] = [:] // id -> count, shown when above zero
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(items, id: \.0) { id, title, symbol in
                 Button { selection = id } label: {
-                    HStack(spacing: 6) { Image(systemName: symbol); Text(title) }
+                    HStack(spacing: 6) {
+                        if !symbol.isEmpty { Image(systemName: symbol) }
+                        Text(title)
+                        if let count = badges[id], count > 0 {
+                            Text(String(count)).font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(Color.onDanger)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Color.danger, in: .rect(cornerRadius: 4))
+                        }
+                    }
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(selection == id ? Color.ink : Color.inkMuted)
                         .padding(.horizontal, 8)
@@ -79,6 +88,7 @@ struct Tabs: View {
             }
         }
         .padding(2)
+        .fixedSize() // a tab title is never cut
         .background(Color.surfaceRaised, in: .rect(cornerRadius: 8))
         .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.border) }
     }
@@ -222,26 +232,34 @@ struct ToggleRow: View {
     }
 
     var body: some View {
-        SettingRow(title, help: help) { Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(CorralToggleStyle()) }
+        SettingRow(title, help: help) { Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(CorralToggleStyle()).accessibilityLabel(title) }
     }
 }
 
 /// The switch of the design system: the brand color when on, the pressed surface with a strong edge when off.
 struct CorralToggleStyle: ToggleStyle {
+    var showsLabel = false
     @Environment(\.isEnabled) private var enabled
 
     func makeBody(configuration: Configuration) -> some View {
         let on = configuration.isOn
-        return Capsule().fill(on ? Color.brand : Color.surfacePressed)
-            .overlay { Capsule().strokeBorder(on ? Color.brand : Color.borderStrong) }
+        return HStack(spacing: 8) {
+          if showsLabel { configuration.label.font(.system(size: 13)) }
+          RoundedRectangle(cornerRadius: 9).fill(on ? Color.brand : Color.surfacePressed)
+            .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(on ? Color.brand : Color.borderStrong) }
             .frame(width: 32, height: 18)
             .overlay(alignment: on ? .trailing : .leading) {
                 Circle().fill(on ? Color.onBrand : Color.inkMuted).frame(width: 12, height: 12).padding(3)
             }
-            .contentShape(.capsule)
+        }
+            .contentShape(.rect)
             .onTapGesture { if enabled { configuration.isOn.toggle() } }
             .opacity(enabled ? 1 : 0.45)
-        .accessibilityRepresentation { Toggle(isOn: configuration.$isOn) { configuration.label } }
+            // Not accessibilityRepresentation: its system switch drew behind this one.
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isToggle)
+            .accessibilityValue(on ? "On" : "Off")
+            .accessibilityAction { if enabled { configuration.isOn.toggle() } }
     }
 }
 
@@ -274,29 +292,38 @@ struct PickerRow: View {
     }
 
     var body: some View {
-        SettingRow(title) {
-            Menu {
-                ForEach(options, id: \.value) { option in
-                    Toggle(option.label, isOn: Binding(get: { selection == option.value }, set: { if $0 { selection = option.value } }))
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(options.first { $0.value == selection }?.label ?? "None")
-                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Color.inkMuted)
-                }
-                .font(.system(size: 13, weight: .medium))
-                .padding(.horizontal, 8)
-                .frame(height: 24)
-                .background(Color.surface, in: .rect(cornerRadius: 6))
-                .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(Color.borderStrong) }
-                .contentShape(.rect)
+        SettingRow(title) { ChoiceMenu(title: title, selection: $selection, options: options.map { ($0.value, $0.label) }) }
+    }
+}
+
+/// A menu of choices that looks like a default button with the current choice.
+struct ChoiceMenu: View {
+    let title: String // for VoiceOver
+    @Binding var selection: String
+    let options: [(String, String)] // value, label
+
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.0) { value, label in
+                Toggle(label, isOn: Binding(get: { selection == value }, set: { if $0 { selection = value } }))
             }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .accessibilityLabel(title)
+        } label: {
+            HStack(spacing: 6) {
+                Text(options.first { $0.0 == selection }?.1 ?? "None").lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Color.inkMuted)
+            }
+            .font(.system(size: 13, weight: .medium))
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(Color.surface, in: .rect(cornerRadius: 6))
+            .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(Color.borderStrong) }
+            .contentShape(.rect)
         }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel(title)
     }
 }
 

@@ -64,7 +64,8 @@ func renderUI() async throws {
         #"{"time":\#(now - 5),"method":"GET","url":"https://blog.test/2026/spring-planting/","status":200,"queries":[{"sql":"SELECT option_value FROM wp_options WHERE option_name = 'siteurl'","ms":0.4,"caller":"wp-includes/option.php:157"}]}"#,
     ]
     try requests.joined(separator: "\n").appending("\n").write(toFile: home + "/logs/queries.jsonl", atomically: true, encoding: .utf8)
-    try "2026/11/10 12:04:12 [notice] 401#0: signal process started\n2026/11/10 12:05:40 [error] 401#0: *12 connect() failed (61: Connection refused) while connecting to upstream, client: 127.0.0.1, server: storefront.test\n"
+    let wpNotice = "[10-Nov-2026 06:19:19 UTC] PHP Notice:  Translation loading for the <code>woocommerce</code> domain was triggered too early. in /srv/wp-includes/functions.php on line 6131\n"
+    try (wpNotice + wpNotice + "[2026-11-10 12:05:01] local.ERROR: Call to undefined method App\\Cart::total()\n#0 app/Http/Controllers/CartController.php(41): App\\Cart->total()\n" + "2026/11/10 12:04:12 [notice] 401#0: signal process started\n2026/11/10 12:05:40 [error] 401#0: *12 connect() failed (61: Connection refused) while connecting to upstream, client: 127.0.0.1, server: storefront.test\n")
         .write(toFile: home + "/logs/nginx-error.log", atomically: true, encoding: .utf8)
     try fm.createDirectory(atPath: home + "/profiles", withIntermediateDirectories: true)
     for (i, name) in ["crm_test_customers", "acme-shop_test_checkout"].enumerated() {
@@ -85,6 +86,7 @@ func renderUI() async throws {
         ("settings-sites", 580, 640, AnyView(SitesTab(model: model).buttonStyle(CorralButtonStyle()).designSurface())),
         ("settings-certificates", 580, 460, AnyView(CertificatesTab(model: model).buttonStyle(CorralButtonStyle()).designSurface())),
         ("settings-about", 580, 560, AnyView(AboutTab(model: model).buttonStyle(CorralButtonStyle()).designSurface())),
+        ("insights-logs", 720, 360, AnyView(LogsView(model: model, log: LogState()).designSurface())),
         ("insights-requests", 720, 460, AnyView(QueriesView(model: model))),
         ("insights-mail", 720, 400, AnyView(MailView(model: model, mail: MailServer.shared))),
         ("insights-profiles", 720, 360, AnyView(ProfilesView(model: model))),

@@ -309,7 +309,7 @@ struct MailView: View {
         VStack(spacing: 0) {
             HStack {
                 // The switch shows whether Corral listens, not only the setting: a taken port leaves it off.
-                Toggle("Catch mail on 127.0.0.1:\(String(MailServer.port))", isOn: Binding(get: { mail.listening }, set: setMail)) // String: no "2,525"
+                Toggle("Catch mail on 127.0.0.1:\(String(MailServer.port))", isOn: Binding(get: { mail.listening }, set: setMail)).toggleStyle(CorralToggleStyle(showsLabel: true)) // String: no "2,525"
                 Spacer()
                 Text("\(mail.messages.count) of \(MailServer.limit)").font(.caption).foregroundStyle(.secondary)
                 Button("Move All to Trash", action: mail.clear).disabled(mail.messages.isEmpty)
