@@ -16,17 +16,42 @@ jobs:
   laravel-installer:
     runs-on: macos-15 # Apple silicon
     steps:
+      # The schedule builds only a new installer release. A manual run always builds.
+      # Each upload replaces the phar and the manifest one after the other, so fewer uploads also mean
+      # fewer moments where a download gets a phar that does not match the manifest.
+      - name: Check for a new installer release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          latest=$(gh api repos/laravel/installer/releases/latest --jq '.tag_name | ltrimstr("v")')
+          published=$(gh release download tools --pattern manifest.json --output - 2>/dev/null | jq -r '.laravel.version // empty' || true)
+          echo "Latest $latest, published ${published:-none}"
+          if [ "$EVENT" = schedule ] && [ "$latest" = "$published" ]; then
+            echo "Nothing to build."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "version=$latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.check.outputs.build == 'true'
 
       - name: Install PHP
+        if: steps.check.outputs.build == 'true'
         run: brew install php
 
       - name: Build the phar
+        if: steps.check.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/build-laravel-installer.sh
+        run: ./scripts/build-laravel-installer.sh "${{ steps.check.outputs.version }}"
 
       - name: Upload to the tools release
+        if: steps.check.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
