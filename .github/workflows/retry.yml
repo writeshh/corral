@@ -1,11 +1,11 @@
-name: Retry PHP builds
+name: Retry failed builds
 
-# Runs the failed jobs of "PHP builds" one more time. Most failures are temporary:
+# Runs the failed jobs of "PHP builds" and "Tools" one more time. Most failures are temporary:
 # no free macOS runner, or a download that timed out. A second failure stays failed.
 
 on:
   workflow_run:
-    workflows: ["PHP builds"]
+    workflows: ["PHP builds", "Tools"]
     types: [completed]
 
 permissions:
