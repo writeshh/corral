@@ -12,11 +12,43 @@ permissions:
   contents: write
 
 jobs:
+  # The schedule builds only the versions with a new patch release on php.net. Most weeks nothing builds.
+  # A manual run builds all versions. Use it after a change to scripts/build-php.sh.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      php: ${{ steps.plan.outputs.php }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          gh release download php-builds --pattern manifest.json --output manifest.json --clobber 2>/dev/null || echo '{}' > manifest.json
+          python3 - <<'EOF'
+          import json, os, urllib.request
+          published = json.load(open("manifest.json"))
+          todo = []
+          for minor in ["8.1", "8.2", "8.3", "8.4", "8.5"]:
+              with urllib.request.urlopen(f"https://www.php.net/releases/index.php?json&version={minor}") as r:
+                  latest = json.load(r)["version"]
+              have = published.get(minor, {}).get("version")
+              print(f"{minor}: latest {latest}, published {have}")
+              if os.environ["EVENT"] == "workflow_dispatch" or latest != have:
+                  todo.append(minor)
+          print("Build:", todo or "nothing")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"php={json.dumps(todo)}\n")
+          EOF
+
   build:
+    needs: plan
+    if: needs.plan.outputs.php != '[]'
     strategy:
       fail-fast: false
       matrix:
-        php: ["8.1", "8.2", "8.3", "8.4", "8.5"]
+        php: ${{ fromJSON(needs.plan.outputs.php) }}
     runs-on: macos-15 # Apple silicon
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +79,8 @@ jobs:
 
   publish:
     needs: build
-    if: ${{ !cancelled() }} # publish the versions that built, even if one failed
+    # Publish the versions that built, even if one failed. Skip when there was nothing to build.
+    if: ${{ !cancelled() && needs.build.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
