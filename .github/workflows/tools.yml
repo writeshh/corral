@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   laravel-installer:
-    runs-on: macos-15 # Apple silicon
+    runs-on: ubuntu-latest # has PHP with the phar extension. A phar does not depend on the platform.
     steps:
       # The schedule builds only a new installer release. A manual run always builds.
       # Each upload replaces the phar and the manifest one after the other, so fewer uploads also mean
@@ -39,10 +39,6 @@ jobs:
 
       - uses: actions/checkout@v4
         if: steps.check.outputs.build == 'true'
-
-      - name: Install PHP
-        if: steps.check.outputs.build == 'true'
-        run: brew install php
 
       - name: Build the phar
         if: steps.check.outputs.build == 'true'
