@@ -6,6 +6,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-23
+
 ### Added
 
 - The site list shows the favicon of each site. Corral reads `/favicon.ico` from the running site. A redirect stays on the local host, so no request leaves the Mac.
@@ -266,7 +268,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The menu bar panel shrinks after a banner closes, and the site list text is sharp.
 - Port numbers show without a thousands separator, for example 2525.
 
-[Unreleased]: https://github.com/writeshh/corral/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/writeshh/corral/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/writeshh/corral/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/writeshh/corral/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/writeshh/corral/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/writeshh/corral/compare/v0.7.0...v0.8.0
