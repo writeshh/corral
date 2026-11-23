@@ -6,6 +6,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-23
+
 ### Added
 
 - Logs shows each entry as time, level and message. A filter shows all entries, only warnings, or only errors, with a count of the errors.
@@ -16,6 +18,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Log messages show without HTML tags, and paths show without the site folder. The time is local time. The full time stamp is in the tooltip.
 - The Logs toolbar shows the file name, not the full path, and "Follow Browser" has a label.
 - The Insights views use the buttons, switches and status colors of the Corral design system.
+- ⌘Q in the main window or Settings closes the Corral windows, and Corral stays in the menu bar. "Quit Corral" in the quick menu quits Corral.
 
 ## [0.9.0] - 2026-11-10
 
@@ -252,7 +255,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The menu bar panel shrinks after a banner closes, and the site list text is sharp.
 - Port numbers show without a thousands separator, for example 2525.
 
-[Unreleased]: https://github.com/writeshh/corral/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/writeshh/corral/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/writeshh/corral/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/writeshh/corral/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/writeshh/corral/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/writeshh/corral/compare/v0.6.1...v0.7.0
