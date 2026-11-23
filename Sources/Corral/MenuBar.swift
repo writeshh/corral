@@ -3,16 +3,65 @@ import SwiftUI
 
 /// What the panel shows. Built on the work queue after each job, then published on the main actor.
 struct Snapshot: Sendable {
-    /// What a site is, from the files in its folder. The panel shows it as a small tile, so sites tell apart at a glance.
+    /// What a site is, from the files in its folder. The site list shows it as a colored label next to the version.
+    /// The first match wins: frameworks before languages, and PHP before a bare package.json (build tools of a PHP project).
     enum Kind: Sendable {
-        case laravel, wordpress, proxy, php
+        case laravel, wordpress, payload, next, tauri, reactNative, swift, rust, go, flutter, python, php, node, html, proxy, other
 
         init(_ site: Site) {
-            let has = { FileManager.default.fileExists(atPath: site.path + "/" + $0) }
-            if site.proxy != nil { self = .proxy }
-            else if has("artisan") { self = .laravel }
-            else if has("wp-config.php") || has("wp-content") || has("wp-load.php") || has("web/wp-config.php") { self = .wordpress }
-            else { self = .php }
+            let has = { (f: String) in FileManager.default.fileExists(atPath: site.path + "/" + f) }
+            let package = (try? String(contentsOfFile: site.path + "/package.json", encoding: .utf8)) ?? ""
+            let uses = { (dependency: String) in package.contains("\"\(dependency)\"") }
+            let files = (try? FileManager.default.contentsOfDirectory(atPath: site.path)) ?? []
+            self = if site.proxy != nil { .proxy }
+            else if has("artisan") { .laravel }
+            else if has("wp-config.php") || has("wp-content") || has("wp-load.php") || has("web/wp-config.php") { .wordpress }
+            else if package.contains("\"@payloadcms/") { .payload } // a Payload app or plugin
+            else if uses("next") { .next }
+            else if has("src-tauri") || uses("@tauri-apps/api") { .tauri }
+            else if uses("expo") || uses("react-native") { .reactNative }
+            else if has("Package.swift") || files.contains(where: { $0.hasSuffix(".xcodeproj") || $0.hasSuffix(".xcworkspace") }) { .swift }
+            else if has("Cargo.toml") { .rust }
+            else if has("go.mod") { .go }
+            else if has("pubspec.yaml") { .flutter }
+            else if has("pyproject.toml") || has("requirements.txt") { .python }
+            else if has("composer.json") || has("index.php") || has("public/index.php") { .php }
+            else if !package.isEmpty { .node }
+            else if has("index.html") || has("public/index.html") { .html }
+            else { .other }
+        }
+
+        /// Corral serves the site with PHP. The site list shows the PHP version only then.
+        var runsPHP: Bool { [.laravel, .wordpress, .php].contains(self) }
+
+        /// The framework version in the folder: the installed one, else the one that package.json or composer.json asks for.
+        func version(at path: String) -> String? {
+            let json = { (file: String) in
+                FileManager.default.contents(atPath: path + "/" + file).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            }
+            let asked = { (file: String, sections: [String], name: String) in
+                sections.lazy.compactMap { (json(file)?[$0] as? [String: Any])?[name] as? String }.first?
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "^~>=v "))
+            }
+            let npm = { (name: String) in
+                json("node_modules/\(name)/package.json")?["version"] as? String
+                    ?? asked("package.json", ["dependencies", "devDependencies", "peerDependencies"], name)
+            }
+            // The quoted value after a marker in a PHP file, for example '6.8.1' after "$wp_version =".
+            let constant = { (file: String, marker: String) -> String? in
+                guard let text = try? String(contentsOfFile: path + "/" + file, encoding: .utf8), let r = text.range(of: marker) else { return nil }
+                return text[r.upperBound...].split(separator: "'", maxSplits: 2, omittingEmptySubsequences: false).dropFirst().first.map(String.init)
+            }
+            return switch self {
+            case .wordpress: constant("wp-includes/version.php", "$wp_version =") ?? constant("web/wp/wp-includes/version.php", "$wp_version =")
+            case .laravel: constant("vendor/laravel/framework/src/Illuminate/Foundation/Application.php", "const VERSION =")
+                ?? asked("composer.json", ["require"], "laravel/framework")
+            case .payload: npm("payload")
+            case .next: npm("next")
+            case .tauri: npm("@tauri-apps/api")
+            case .reactNative: npm("react-native")
+            default: nil
+            }
         }
     }
 
@@ -25,6 +74,7 @@ struct Snapshot: Sendable {
         let secured: Bool
         let isolated: String?
         let kind: Kind
+        let version: String? // of the framework, for example WordPress 6.8.1
         var id: String { site.name }
     }
 
@@ -67,9 +117,10 @@ struct Snapshot: Sendable {
         rows = sites.map { s in
             let shortPath = s.path.hasPrefix(tilde) ? "~" + s.path.dropFirst(tilde.count) : s.path
             let version = s.proxy == nil ? c.php(for: s, php) : nil
+            let kind = Kind(s)
             return Row(site: s, host: c.host(s), url: c.url(s),
                        detail: s.proxy == nil ? shortPath : "Proxy to \(s.path)",
-                       php: version, secured: c.config.secured.contains(s.name), isolated: c.config.isolated[s.name], kind: Kind(s))
+                       php: version, secured: c.config.secured.contains(s.name), isolated: c.config.isolated[s.name], kind: kind, version: kind.version(at: s.path))
         }
         services = c.status().map { (name: $0.0, up: $0.1) }
         versions = Corral.sortVersions(php.keys)
@@ -673,11 +724,6 @@ extension Color {
     static let onDanger = Color(dark: 0x111111, light: 0xFFFFFF)
     /// The accent as text or as a symbol, for a control that is on.
     static let brandInk = Color(dark: 0xF2762A, light: 0xAD4505)
-    // The glyph colors of the kind tile.
-    static let kindLaravel = Color(dark: 0xFF8A7A, light: 0xB8321F)
-    static let kindWordPress = Color(dark: 0x6FB1FF, light: 0x1F5FB8)
-    static let kindProxy = Color(dark: 0x5FD0C5, light: 0x0B6F66)
-    static let kindPHP = Color(dark: 0xB9B5AB, light: 0x5F5C55)
 }
 
 // MARK: - Panel
@@ -980,36 +1026,35 @@ extension Banner where Actions == EmptyView {
 // Plain property wrappers (@StateObject, @Published) keep the app buildable without Xcode.
 final class Hover: ObservableObject { @Published var on = false }
 
-/// A small rounded tile for the kind of site: a letter for a framework, a symbol otherwise. The ground is
-/// neutral and only the glyph has a color, so a long list stays calm and the names stay the strongest element.
-struct KindTile: View {
-    let kind: Snapshot.Kind
-
-    var body: some View {
-        let (color, mark): (Color, String?) = switch kind {
-        case .laravel: (.kindLaravel, "L")
-        case .wordpress: (.kindWordPress, "W")
-        case .proxy: (.kindProxy, nil)
-        case .php: (.kindPHP, nil)
-        }
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(Color.surfaceRaised)
-            .frame(width: 20, height: 20)
-            .overlay {
-                if let mark {
-                    Text(mark).font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(color)
-                } else {
-                    Image(systemName: kind == .proxy ? "arrow.left.arrow.right" : "chevron.left.forwardslash.chevron.right")
-                        .font(.system(size: 9, weight: .bold)).foregroundStyle(color)
-                }
-            }
-            .accessibilityLabel(kind.name)
-    }
-}
-
 extension Snapshot.Kind {
+    /// The text color of the kind label: a hue near the brand color, or gray for a plain language.
+    var color: Color {
+        switch self {
+        case .laravel: Color(dark: 0xFF8A7A, light: 0xB8321F)
+        case .wordpress: Color(dark: 0x6FB1FF, light: 0x1F5FB8)
+        case .payload: Color(dark: 0xC4A5FF, light: 0x6A3DB8)
+        case .next: .primary
+        case .tauri: Color(dark: 0xF2C14E, light: 0x8A6100)
+        case .reactNative: Color(dark: 0x6FD3F0, light: 0x0B6E8A)
+        case .swift: Color(dark: 0xFF9A5C, light: 0xB4501A)
+        case .rust: Color(dark: 0xE0A080, light: 0x8A4A2B)
+        case .go: Color(dark: 0x5FCDE4, light: 0x00708C)
+        case .flutter: Color(dark: 0x7FC8F8, light: 0x0A5FA0)
+        case .python: Color(dark: 0xE8D06A, light: 0x7A6A00)
+        case .node: Color(dark: 0x86C76F, light: 0x3E7A2E)
+        case .proxy: Color(dark: 0x5FD0C5, light: 0x0B6F66)
+        case .php, .html, .other: .inkMuted
+        }
+    }
+
+    /// The label text. Empty for a folder with no known project files.
     var name: String {
-        switch self { case .laravel: "Laravel"; case .wordpress: "WordPress"; case .proxy: "Proxy"; case .php: "PHP" }
+        switch self {
+        case .laravel: "Laravel"; case .wordpress: "WordPress"; case .payload: "Payload"; case .next: "Next.js"
+        case .tauri: "Tauri"; case .reactNative: "React Native"; case .swift: "Swift"; case .rust: "Rust"; case .go: "Go"
+        case .flutter: "Flutter"; case .python: "Python"; case .php: "PHP"; case .node: "Node"; case .html: "HTML"
+        case .proxy: "Proxy"; case .other: ""
+        }
     }
 }
 

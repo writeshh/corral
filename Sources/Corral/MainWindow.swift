@@ -340,7 +340,7 @@ struct EmptyState<Action: View>: View {
     }
 }
 
-/// One site as a table row: kind, name, lock, PHP version, folder, and the row actions.
+/// One site as a table row: favicon, name, lock, kind, version, folder, and the row actions.
 struct SiteRow: View {
     let row: Snapshot.Row
     @ObservedObject var model: Model
@@ -352,25 +352,34 @@ struct SiteRow: View {
         // The top level domain is quiet, so the eye reads the name first.
         let dot = row.host.lastIndex(of: ".") ?? row.host.endIndex
         HStack(spacing: 8) {
-            KindTile(kind: row.kind)
+            SiteIcon(url: row.url)
             Text("\(Text(row.host[..<dot]).fontWeight(.medium))\(Text(row.host[dot...]).foregroundStyle(Color.inkMuted))")
                 .font(.system(size: 13)).lineLimit(1).truncationMode(.middle)
             if row.secured {
                 Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(Color.inkFaint).accessibilityLabel("HTTPS")
             }
             Spacer(minLength: 8)
-            // A pinned PHP version is a badge. The global version is plain text.
-            Group {
-                if let pinned = row.isolated {
+            Text(row.kind.name).font(.system(size: 11)).foregroundStyle(row.kind.color)
+                .frame(width: 80, alignment: .leading)
+            // The framework version, with the PHP version in its help, and the pinned PHP version as a badge.
+            // Without a framework, the PHP version: plain text for the global version. A site that does not run on PHP shows none.
+            HStack(spacing: 4) {
+                if let version = row.version {
+                    Text(version).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.inkMuted)
+                        .lineLimit(1).truncationMode(.tail)
+                        .help(row.php.map { "\(row.kind.name) \(version) on PHP \($0)" } ?? "")
+                } else if row.kind.runsPHP && row.isolated == nil {
+                    Text(row.php ?? "").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.inkMuted)
+                }
+                if row.kind.runsPHP, let pinned = row.isolated {
                     Text(pinned).font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(Color.inkMuted)
                         .padding(.horizontal, 6).padding(.vertical, 1)
                         .background(Color.surfacePressed, in: .rect(cornerRadius: 4))
-                        .help("PHP version pinned to this site")
-                } else {
-                    Text(row.php ?? "").font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.inkMuted)
+                        .fixedSize()
+                        .help("PHP \(pinned), pinned to this site")
                 }
             }
-            .frame(width: 48, alignment: .leading)
+            .frame(width: 84, alignment: .leading)
             Text(row.detail).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.inkMuted)
                 .lineLimit(1).truncationMode(.middle)
                 .frame(width: 220, alignment: .leading)
@@ -406,6 +415,59 @@ struct SiteRow: View {
         SiteActions(row: row, model: model)
         Divider()
         SiteSettings(row: row, model: model)
+    }
+}
+
+/// The favicon of a site, or a neutral globe while it loads and when the site has none.
+struct SiteIcon: View {
+    let url: URL
+    @ObservedObject private var favicons = Favicons.shared
+
+    var body: some View {
+        Group {
+            if let image = favicons.images[url.host ?? ""] {
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFit().frame(width: 16, height: 16)
+            } else {
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.surfaceRaised)
+                    .overlay { Image(systemName: "globe").font(.system(size: 10)).foregroundStyle(Color.inkFaint) }
+            }
+        }
+        .frame(width: 20, height: 20)
+        .onAppear { favicons.load(url) }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Site favicons, fetched from each running site the first time its row shows. /favicon.ico is enough:
+/// Laravel serves the file in public/, and WordPress redirects the path to the site icon.
+// ponytail: kept in memory for the run. A changed favicon shows after a restart of Corral.
+@MainActor final class Favicons: ObservableObject {
+    static let shared = Favicons()
+    private static let session = URLSession(configuration: .ephemeral)
+    @Published private(set) var images: [String: NSImage] = [:]
+    private var asked: Set<String> = []
+
+    func load(_ site: URL) {
+        let host = site.host ?? ""
+        guard asked.insert(host).inserted, let url = URL(string: "/favicon.ico", relativeTo: site)?.absoluteURL else { return }
+        Task {
+            // No response (services stopped): try again the next time the row shows.
+            guard let (data, response) = try? await Self.session.data(for: URLRequest(url: url, timeoutInterval: 15), delegate: StayOnHost())
+            else { asked.remove(host); return }
+            if (response as? HTTPURLResponse)?.statusCode == 200, let image = NSImage(data: data), image.isValid { images[host] = image }
+        }
+    }
+}
+
+/// Keeps a favicon redirect on the local site. A WordPress copy can redirect to its production domain,
+/// and the site list must not send requests out of this Mac.
+final class StayOnHost: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        guard let from = task.originalRequest?.url, let to = request.url,
+              var c = URLComponents(url: to, resolvingAgainstBaseURL: false) else { return nil }
+        c.scheme = from.scheme; c.host = from.host; c.port = from.port
+        return c.url.map { URLRequest(url: $0, timeoutInterval: 15) }
     }
 }
 

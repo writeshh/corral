@@ -221,7 +221,7 @@ Click the Corral icon in the menu bar to open the quick menu. The quick menu sho
 
 The main window has a sidebar with **Sites** and the Insights views.
 
-- **Sites** lists all sites in groups, one group for each parked folder. Each row shows the PHP version and the folder. Click a site to select it. Double-click it to open it in the browser.
+- **Sites** lists all sites in groups, one group for each parked folder. Each row shows the favicon, the kind of project (Laravel, WordPress, Payload, Next.js, and more), the framework version or the PHP version, and the folder. Click a site to select it. Double-click it to open it in the browser.
 - Type in the search field to filter the sites. Return opens the first match.
 - Site actions: copy the URL, show the folder in Finder, serve over HTTPS, and select the PHP version
 - Hold the pointer over a site to show its buttons: open in the browser, and "..." for the site actions. A right-click shows the same actions.

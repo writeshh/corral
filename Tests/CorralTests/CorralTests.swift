@@ -1083,3 +1083,47 @@ import Testing
     let kept = Corral.herdUninstallPlan(home: home, root: tmp + "/root")
     #expect(kept.nvmTarget == nil && !(kept.shellFiles[home + "/.zshrc"] ?? "").contains("moved from Herd"))
 }
+
+@Test func siteKinds() throws {
+    let fm = FileManager.default
+    let tmp = fm.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? fm.removeItem(atPath: tmp) }
+    let sites: [(String, [String: String], Snapshot.Kind)] = [
+        ("laravel", ["artisan": "", "package.json": #"{"devDependencies": {"vite": "6"}}"#], .laravel),
+        ("payload", ["package.json": #"{"dependencies": {"@payloadcms/next": "3.90.1", "next": "15"}}"#], .payload),
+        ("next", ["package.json": #"{"dependencies": {"next": "15", "react": "19"}}"#], .next),
+        ("tauri", ["package.json": #"{"dependencies": {"@tauri-apps/api": "2"}}"#], .tauri),
+        ("swift", ["App.xcodeproj/project.pbxproj": ""], .swift),
+        ("rust", ["Cargo.toml": ""], .rust),
+        ("plugin", ["package.json": "{}", "composer.json": "{}"], .php),
+        ("express", ["package.json": #"{"dependencies": {"express": "5"}}"#], .node),
+        ("static", ["index.html": ""], .html),
+        ("empty", [:], .other),
+    ]
+    for (name, files, kind) in sites {
+        try fm.createDirectory(atPath: "\(tmp)/\(name)", withIntermediateDirectories: true)
+        for (file, text) in files {
+            try fm.createDirectory(atPath: (("\(tmp)/\(name)/\(file)") as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try text.write(toFile: "\(tmp)/\(name)/\(file)", atomically: true, encoding: .utf8)
+        }
+        #expect(Snapshot.Kind(Site(name: name, path: "\(tmp)/\(name)")) == kind, "\(name)")
+    }
+
+    // Versions: the installed one first, else the one the project file asks for.
+    let versions: [(String, Snapshot.Kind, [String: String], String?)] = [
+        ("wp", .wordpress, ["wp-includes/version.php": "<?php\n$wp_version = '6.8.1';\n"], "6.8.1"),
+        ("bedrock", .wordpress, ["web/wp/wp-includes/version.php": "$wp_version = '6.7';"], "6.7"),
+        ("lv", .laravel, ["vendor/laravel/framework/src/Illuminate/Foundation/Application.php": "    const VERSION = '13.17.0';"], "13.17.0"),
+        ("lv-new", .laravel, ["composer.json": #"{"require": {"laravel/framework": "^12.0"}}"#], "12.0"),
+        ("pl", .payload, ["node_modules/payload/package.json": #"{"name": "payload", "version": "4.0.0-beta.0"}"#], "4.0.0-beta.0"),
+        ("pl-new", .payload, ["package.json": #"{"scripts": {"payload": "cross-env payload"}, "devDependencies": {"payload": "^3.85.0"}}"#], "3.85.0"),
+        ("bare", .php, [:], nil),
+    ]
+    for (name, kind, files, version) in versions {
+        for (file, text) in files {
+            try fm.createDirectory(atPath: (("\(tmp)/\(name)/\(file)") as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try text.write(toFile: "\(tmp)/\(name)/\(file)", atomically: true, encoding: .utf8)
+        }
+        #expect(kind.version(at: "\(tmp)/\(name)") == version, "\(name)")
+    }
+}

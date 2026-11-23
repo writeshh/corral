@@ -6,6 +6,17 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The site list shows the favicon of each site. Corral reads `/favicon.ico` from the running site. A redirect stays on the local host, so no request leaves the Mac.
+- The site list shows the kind of each project: Laravel, WordPress, Payload, Next.js, Tauri, React Native, Swift, Rust, Go, Flutter, Python, PHP, Node or HTML.
+- The site list shows the version of WordPress, Laravel, Payload, Next.js, Tauri and React Native. The PHP version of the site is in the tooltip.
+
+### Changed
+
+- The favicon replaces the kind tile at the start of each row. The kind shows as a colored label next to the version.
+- A site that does not run on PHP shows no PHP version. A pinned PHP version stays visible as a badge.
+
 ## [0.10.0] - 2026-11-23
 
 ### Added
