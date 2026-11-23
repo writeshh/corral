@@ -416,6 +416,15 @@ struct AppCommands: Commands {
     @AppStorage("insightsTab") private var insightsTab = "dumps"
 
     var body: some Commands {
+        // ⌘Q closes the Corral windows, and Corral stays in the menu bar. The quick menu's Quit quits.
+        // With no window open (Dock icon on), ⌘Q quits.
+        CommandGroup(replacing: .appTermination) {
+            Button("Quit Corral") {
+                let windows = NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }
+                if windows.isEmpty { NSApp.terminate(nil) } else { windows.forEach { $0.close() } }
+            }
+            .keyboardShortcut("q")
+        }
         CommandGroup(replacing: .newItem) {
             Button("Park Folder…", action: model.park).keyboardShortcut("p", modifiers: [.command, .shift])
             Button("Link Folder…", action: model.link).keyboardShortcut("l", modifiers: [.command, .shift])
