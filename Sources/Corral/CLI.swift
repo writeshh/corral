@@ -605,11 +605,12 @@ enum CLI {
     /// The tunnel tools of `corral share`, in the order it picks them. cloudflared needs no account.
     static let shareTools = ["cloudflared", "ngrok", "expose"]
 
-    /// The command that shares a site on a public URL. The tunnel connects to nginx and sends the site's name in the
-    /// Host header, so nginx picks the site. A secured site uses the HTTPS port: the HTTP port only redirects.
+    /// The command that shares a site on a public URL. The tunnel connects to the address that browsers use and sends
+    /// the site's name in the Host header, so nginx picks the site. Not nginx's own ports: some pf rules (for example
+    /// from Herd) drop direct connections to them. A secured site uses HTTPS: plain HTTP only redirects.
     /// The tunnels skip the check of the local certificate, which only this Mac trusts.
     static func shareCommand(_ tool: String, host: String, secured: Bool) -> [String] {
-        let local = secured ? "https://127.0.0.1:\(Corral.httpsPort)" : "http://127.0.0.1:\(Corral.httpPort)"
+        let local = secured ? "https://\(Corral.loopback):443" : "http://\(Corral.loopback):80"
         switch tool {
         case "cloudflared": return ["cloudflared", "tunnel", "--url", local, "--http-host-header", host] + (secured ? ["--origin-server-name", host, "--no-tls-verify"] : [])
         case "ngrok": return ["ngrok", "http", local, "--host-header", host]

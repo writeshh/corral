@@ -1199,10 +1199,10 @@ import Testing
 }
 
 @Test func shareCommands() {
-    #expect(CLI.shareCommand("cloudflared", host: "shop.test", secured: true) == ["cloudflared", "tunnel", "--url", "https://127.0.0.1:\(Corral.httpsPort)",
+    #expect(CLI.shareCommand("cloudflared", host: "shop.test", secured: true) == ["cloudflared", "tunnel", "--url", "https://127.0.0.2:443",
         "--http-host-header", "shop.test", "--origin-server-name", "shop.test", "--no-tls-verify"])
-    #expect(CLI.shareCommand("cloudflared", host: "shop.test", secured: false) == ["cloudflared", "tunnel", "--url", "http://127.0.0.1:\(Corral.httpPort)", "--http-host-header", "shop.test"])
-    #expect(CLI.shareCommand("ngrok", host: "shop.test", secured: true) == ["ngrok", "http", "https://127.0.0.1:\(Corral.httpsPort)", "--host-header", "shop.test"])
+    #expect(CLI.shareCommand("cloudflared", host: "shop.test", secured: false) == ["cloudflared", "tunnel", "--url", "http://127.0.0.2:80", "--http-host-header", "shop.test"])
+    #expect(CLI.shareCommand("ngrok", host: "shop.test", secured: true) == ["ngrok", "http", "https://127.0.0.2:443", "--host-header", "shop.test"])
     #expect(CLI.shareCommand("expose", host: "shop.test", secured: false) == ["expose", "share", "http://shop.test"])
 }
 
