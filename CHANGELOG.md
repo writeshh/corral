@@ -6,6 +6,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-26
+
 ### Security
 
 - nginx 1.30.8 replaces 1.30.6. It fixes 11 vulnerabilities, for example CVE-2026-123007 and CVE-2026-123633 in HTTP/2 and CVE-2026-125283 in `try_files` with `alias`.
@@ -275,7 +277,8 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The menu bar panel shrinks after a banner closes, and the site list text is sharp.
 - Port numbers show without a thousands separator, for example 2525.
 
-[Unreleased]: https://github.com/writeshh/corral/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/writeshh/corral/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/writeshh/corral/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/writeshh/corral/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/writeshh/corral/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/writeshh/corral/compare/v0.8.0...v0.9.0
