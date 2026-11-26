@@ -19,6 +19,14 @@ LIBS="freetype,libjpeg,libwebp"
 XDEBUG_URL=https://xdebug.org/files/xdebug-3.5.3.tgz
 XDEBUG_SHA=f073de91bea046106abf4d6071c963ea71e58571df6ce58948ceca89d121cb2d
 
+# --prefer-pre-built takes most libraries from static-php-cli's pre-built release (February 2026).
+# Two of them were old there and missed security fixes: OpenSSL 3.6.2 and SQLite 3.45.2.
+# Corral builds them from these sources. OpenSSL is the 3.5 LTS line, the same as nginx in build-deps.sh.
+OPENSSL=3.5.9; OPENSSL_SHA=603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+SQLITE=3.54.1; SQLITE_SHA=926ef8d3eab93fbf6e06011901273eec076b25594a4e1cdadd50c987f4f6d64e
+OPENSSL_URL=https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL/openssl-$OPENSSL.tar.gz
+SQLITE_URL=https://www.sqlite.org/2026/sqlite-autoconf-3540100.tar.gz # the file name encodes $SQLITE
+
 ARCH=$(uname -m | sed 's/arm64/aarch64/')
 [ "$ARCH" = aarch64 ] || { echo "Only Apple silicon builds are set up." >&2; exit 1; }
 
@@ -40,10 +48,27 @@ rm -rf source buildroot
 
 # Installs missing build tools with Homebrew (for example bison and re2c).
 ./spc doctor --auto-fix --no-interaction
+# A cached pre-built package wins over a source, so remove the pre-built packages of the pinned libraries.
+./spc del-download openssl,sqlite --pre-built-only
 ./spc download --with-php="$MINOR" --for-extensions="$EXTS,xdebug" --for-libs="$LIBS" --prefer-pre-built --retry=3 \
-    --ignore-cache-sources=php-src --custom-url="xdebug:$XDEBUG_URL"
-XDEBUG_FILE=$(ls downloads/xdebug* | head -n 1)
-echo "$XDEBUG_SHA  $XDEBUG_FILE" | shasum -a 256 -c - >/dev/null || { echo "Xdebug checksum does not match." >&2; exit 1; }
+    --ignore-cache-sources=php-src --custom-url="xdebug:$XDEBUG_URL" \
+    --custom-url="openssl:$OPENSSL_URL" --custom-url="sqlite:$SQLITE_URL"
+# verify <url> <sha256>: the custom URL downloads keep the file name of the URL.
+verify() {
+    echo "$2  downloads/$(basename "$1")" | shasum -a 256 -c - >/dev/null || { echo "Checksum mismatch: $(basename "$1")" >&2; exit 1; }
+}
+verify "$XDEBUG_URL" "$XDEBUG_SHA"
+verify "$OPENSSL_URL" "$OPENSSL_SHA"
+verify "$SQLITE_URL" "$SQLITE_SHA"
+# static-php-cli passes --with-pic to the SQLite configure script, and SQLite 3.48 and later reject it.
+# So the script builds SQLite here. static-php-cli finds libsqlite3.a in buildroot and skips its own build.
+mkdir -p source
+tar xzf "downloads/$(basename "$SQLITE_URL")" -C source
+(
+    cd source/sqlite-autoconf-*
+    CFLAGS="-Os -fPIC -DSQLITE_ENABLE_COLUMN_METADATA=1" ./configure --prefix="$WORK/buildroot" --disable-shared --enable-static >/dev/null
+    make -j"$(sysctl -n hw.ncpu)" install >/dev/null
+)
 # The bcmath code in PHP 8.1 uses old K&R C. Newer compilers default to C23 and reject it.
 if [ "$MINOR" = "8.1" ]; then
     export SPC_DEFAULT_C_FLAGS="-fpic -fpie -std=gnu17"
@@ -58,6 +83,9 @@ case "$VERSION" in "$MINOR".*) ;; *) echo "Built $VERSION, expected $MINOR.x" >&
 # The shared extension must load into the static binaries, or the build is not usable.
 buildroot/bin/php -n -d zend_extension="$PWD/buildroot/modules/xdebug.so" -r 'exit(extension_loaded("xdebug") ? 0 : 1);' \
     || { echo "xdebug.so does not load." >&2; exit 1; }
+# The binary must link the pinned libraries, not the pre-built ones.
+FOUND=$(buildroot/bin/php -n -r 'echo OPENSSL_VERSION_TEXT, "|", SQLite3::version()["versionString"];')
+case "$FOUND" in "OpenSSL $OPENSSL "*"|$SQLITE") ;; *) echo "Unexpected libraries: $FOUND" >&2; exit 1 ;; esac
 
 STAGE=$(mktemp -d)
 cp buildroot/bin/php buildroot/bin/php-fpm buildroot/modules/xdebug.so "$STAGE/"

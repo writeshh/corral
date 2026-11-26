@@ -6,6 +6,13 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- nginx 1.30.8 replaces 1.30.6. It fixes 11 vulnerabilities, for example CVE-2026-123007 and CVE-2026-123633 in HTTP/2 and CVE-2026-125283 in `try_files` with `alias`.
+- nginx links OpenSSL 3.5.9 (LTS) in place of 3.6.5. OpenSSL 3.6 reached its end of life in November 2026 and gets no more security fixes.
+- The bundled Composer is 2.11.3 in place of 2.11.1. 2.11.2 and 2.11.3 fix arbitrary code execution and credential leaks (GHSA-374h-4mh9-7rpm, GHSA-jhfp-4ppm-crmm, GHSA-w6hj-6587-3jh5, GHSA-x82q-x274-r6pq).
+- PHP builds link OpenSSL 3.5.9 and SQLite 3.54.1. Before, the pre-built libraries of static-php-cli gave them OpenSSL 3.6.2 and SQLite 3.45.2, which miss many security fixes. Update each PHP version in Settings > PHP after the next PHP build.
+
 ## [0.11.0] - 2026-11-23
 
 ### Added
