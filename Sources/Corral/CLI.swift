@@ -63,6 +63,9 @@ enum CLI {
       debug <script> [args]        run a PHP script with Xdebug and the PHP version of the site in the current
                                    folder, for example corral debug artisan migrate
       coverage <script> [args]     the same with xdebug.mode=coverage, for example corral coverage vendor/bin/pest --coverage
+      share [site] [--with cloudflared|ngrok|expose]
+                                   share a site on a public URL through a tunnel tool that you install.
+                                   Without --with, Corral uses the first of these in PATH.
       db [name]                    open a database in the app for mysql:// links, for example TablePlus.
                                    Without a name: the database of the site in the current folder (.env or wp-config.php)
       db:list                      list the databases on the local MySQL server (127.0.0.1, user root)
@@ -433,6 +436,22 @@ enum CLI {
                 }
                 // The shell splits the variable, so a value with options like "code -w" works.
                 return try exec(["/bin/sh", "-c", "exec ${VISUAL:-$EDITOR} \"$1\"", "sh", site?.path ?? cwd])
+            case "share":
+                var rest = Array(args.dropFirst()), tool: String?
+                if let i = rest.firstIndex(of: "--with") {
+                    guard i + 1 < rest.count, shareTools.contains(rest[i + 1]) else { throw CorralError("Use --with \(shareTools.joined(separator: ", --with ")).") }
+                    tool = rest[i + 1]
+                    rest.removeSubrange(i...i + 1)
+                }
+                guard corral.isRunning else { throw CorralError("Corral is not running. Run corral start first.") }
+                let site = try corral.site(named: rest.first)
+                let path = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
+                let found = shareTools.filter { t in path.contains { FileManager.default.isExecutableFile(atPath: "\($0)/\(t)") } }
+                guard let use = tool ?? found.first, found.contains(use) else {
+                    throw CorralError("\(tool.map { "\($0) is not in PATH" } ?? "No tunnel tool is in PATH"). Install one: brew install cloudflared (no account needed), brew install ngrok, or composer global require exposedev/expose.")
+                }
+                print("Sharing \(corral.url(site).absoluteString) with \(use). Press Ctrl-C to stop.")
+                return try exec(["/usr/bin/env"] + shareCommand(use, host: corral.host(site), secured: corral.config.secured.contains(site.name)))
             case "db:list":
                 return try exec(database(corral.phpCommand(for: nil), "list"))
             case "db:create":
@@ -577,6 +596,21 @@ enum CLI {
         }
         steps.append(["wp", "config", "set", "ENVIRONMENT", "DEV"])
         return steps
+    }
+
+    /// The tunnel tools of `corral share`, in the order it picks them. cloudflared needs no account.
+    static let shareTools = ["cloudflared", "ngrok", "expose"]
+
+    /// The command that shares a site on a public URL. The tunnel connects to nginx and sends the site's name in the
+    /// Host header, so nginx picks the site. A secured site uses the HTTPS port: the HTTP port only redirects.
+    /// The tunnels skip the check of the local certificate, which only this Mac trusts.
+    static func shareCommand(_ tool: String, host: String, secured: Bool) -> [String] {
+        let local = secured ? "https://127.0.0.1:\(Corral.httpsPort)" : "http://127.0.0.1:\(Corral.httpPort)"
+        switch tool {
+        case "cloudflared": return ["cloudflared", "tunnel", "--url", local, "--http-host-header", host] + (secured ? ["--origin-server-name", host, "--no-tls-verify"] : [])
+        case "ngrok": return ["ngrok", "http", local, "--host-header", host]
+        default: return ["expose", "share", (secured ? "https://" : "http://") + host] // Expose sends the Host of the URL it gets
+        }
     }
 
     /// Creates a MySQL database with the `php` in PATH. See `database`.

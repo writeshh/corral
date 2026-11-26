@@ -1193,3 +1193,11 @@ import Testing
     let cmd = CLI.database(["php"], "drop", "a`b")
     #expect(cmd.suffix(3) == ["--", "drop", "a`b"]) // the name is an argument, never part of the code
 }
+
+@Test func shareCommands() {
+    #expect(CLI.shareCommand("cloudflared", host: "shop.test", secured: true) == ["cloudflared", "tunnel", "--url", "https://127.0.0.1:\(Corral.httpsPort)",
+        "--http-host-header", "shop.test", "--origin-server-name", "shop.test", "--no-tls-verify"])
+    #expect(CLI.shareCommand("cloudflared", host: "shop.test", secured: false) == ["cloudflared", "tunnel", "--url", "http://127.0.0.1:\(Corral.httpPort)", "--http-host-header", "shop.test"])
+    #expect(CLI.shareCommand("ngrok", host: "shop.test", secured: true) == ["ngrok", "http", "https://127.0.0.1:\(Corral.httpsPort)", "--host-header", "shop.test"])
+    #expect(CLI.shareCommand("expose", host: "shop.test", secured: false) == ["expose", "share", "http://shop.test"])
+}

@@ -111,6 +111,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral edit [site]` | Open the site folder (the current folder by default) in the editor of `$VISUAL` or `$EDITOR`. |
 | `corral debug <script> [args]` | Run a PHP script with Xdebug, for example `corral debug artisan migrate`. Corral uses the PHP version and `php.ini` values of the site in the current folder, and the Xdebug settings of `corral xdebug`. |
 | `corral coverage <script> [args]` | Run a PHP script with `xdebug.mode=coverage`, for example `corral coverage vendor/bin/pest --coverage`. |
+| `corral share [site] [--with tool]` | Share a site on a public URL through `cloudflared`, `ngrok`, or `expose`. Install one first, for example `brew install cloudflared`, which needs no account. Without `--with`, Corral uses the first of these in PATH. Links that a page builds from `APP_URL` or the WordPress site address still point to `.test`. |
 | `corral db [name]` | Open a database in the app for `mysql://` links, for example TablePlus. Without a name, Corral uses the database of the site in the current folder: `DB_DATABASE` in `.env`, or `DB_NAME` in `wp-config.php`. |
 | `corral db:list` | List the databases on the local MySQL server (127.0.0.1, user `root`, no password). |
 | `corral db:create [name]` | Create a database. Without a name, Corral uses the database of the site in the current folder. |
