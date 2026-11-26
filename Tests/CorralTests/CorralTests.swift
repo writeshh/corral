@@ -644,7 +644,7 @@ import Testing
 
     let fresh = CLI.wpSetupSteps(name: "crm.pigment", host: "crm.pigment.test", dir: tmp)
     #expect(fresh[0] == CLI.createDatabase("wp_crm_pigment") && fresh[0][0] == "php") // mysqli: no mysql client needed
-    #expect(fresh[0].last!.contains("CREATE DATABASE IF NOT EXISTS `wp_crm_pigment`"))
+    #expect(fresh[0].suffix(3) == ["--", "create", "wp_crm_pigment"])
     #expect(fresh.contains(["wp", "core", "download", "--skip-content", "--locale=en_US"]))
     #expect(fresh.contains { $0.starts(with: ["wp", "config", "create", "--dbname=wp_crm_pigment"]) })
     #expect(fresh.contains { $0.contains("--url=https://crm.pigment.test") })
@@ -1171,4 +1171,25 @@ import Testing
     FileManager.default.createFile(atPath: "\(c.phpDir)/8.4/xdebug.so", contents: nil)
     let debug = try c.phpCommand(for: site, xdebug: ["xdebug.mode=coverage"])
     #expect(debug.suffix(4) == ["-d", "zend_extension=\(c.phpDir)/8.4/xdebug.so", "-d", "xdebug.mode=coverage"])
+}
+
+@Test func siteDatabaseName() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    for dir in ["shop", "blog/wp-content", "crm.pigment"] { try FileManager.default.createDirectory(atPath: "\(tmp)/\(dir)", withIntermediateDirectories: true) }
+    try "APP_NAME=Shop\nDB_DATABASE=\"shop_local\" # comment\n".write(toFile: tmp + "/shop/.env", atomically: true, encoding: .utf8)
+    try "<?php\ndefine( 'DB_NAME', 'blog_db' );\n".write(toFile: tmp + "/blog/wp-config.php", atomically: true, encoding: .utf8)
+    #expect(CLI.siteDatabase(Site(name: "shop", path: tmp + "/shop")) == "shop_local")
+    #expect(CLI.siteDatabase(Site(name: "blog", path: tmp + "/blog")) == "blog_db")
+    #expect(CLI.siteDatabase(Site(name: "crm.pigment", path: tmp + "/crm.pigment")) == "crm_pigment") // the name laravel:setup gives
+    try FileManager.default.removeItem(atPath: tmp + "/blog/wp-config.php")
+    #expect(CLI.siteDatabase(Site(name: "blog", path: tmp + "/blog")) == "wp_blog") // the name wp:setup gives
+
+    let c = Corral(home: tmp + "/home")
+    c.config.links = ["shop": tmp + "/shop"]
+    #expect(try CLI.databaseName(c, nil, tmp + "/shop") == "shop_local")
+    #expect(try CLI.databaseName(c, "other", tmp) == "other")
+    #expect(throws: CorralError.self) { try CLI.databaseName(c, nil, tmp) }
+    let cmd = CLI.database(["php"], "drop", "a`b")
+    #expect(cmd.suffix(3) == ["--", "drop", "a`b"]) // the name is an argument, never part of the code
 }

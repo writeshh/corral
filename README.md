@@ -111,6 +111,10 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral edit [site]` | Open the site folder (the current folder by default) in the editor of `$VISUAL` or `$EDITOR`. |
 | `corral debug <script> [args]` | Run a PHP script with Xdebug, for example `corral debug artisan migrate`. Corral uses the PHP version and `php.ini` values of the site in the current folder, and the Xdebug settings of `corral xdebug`. |
 | `corral coverage <script> [args]` | Run a PHP script with `xdebug.mode=coverage`, for example `corral coverage vendor/bin/pest --coverage`. |
+| `corral db [name]` | Open a database in the app for `mysql://` links, for example TablePlus. Without a name, Corral uses the database of the site in the current folder: `DB_DATABASE` in `.env`, or `DB_NAME` in `wp-config.php`. |
+| `corral db:list` | List the databases on the local MySQL server (127.0.0.1, user `root`, no password). |
+| `corral db:create [name]` | Create a database. Without a name, Corral uses the database of the site in the current folder. |
+| `corral db:drop [name] [--yes]` | Drop a database. Corral asks first, unless you add `--yes`. |
 | `corral tools` | Show the versions of `composer`, `wp`, and `laravel`. See [Bundled tools](#bundled-tools). |
 | `corral tools:update [name]` | Update `composer`, `wp`, or `laravel` (all by default). |
 | `corral open [site]` | Open a site in the browser. |

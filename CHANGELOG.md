@@ -12,6 +12,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `corral tinker` runs `php artisan tinker` with the PHP version of the site.
 - `corral edit` opens a site folder in the editor of `$VISUAL` or `$EDITOR`.
 - `corral debug <script>` runs a PHP script with Xdebug, and `corral coverage <script>` runs it with `xdebug.mode=coverage`. Both use the PHP version and `php.ini` values of the site in the current folder, also from a subfolder.
+- `corral db:list`, `db:create`, and `db:drop` manage the databases on the local MySQL server, with no `mysql` client. `corral db` opens a database in the app for `mysql://` links, for example TablePlus. Without a name, each command uses the database of the site in the current folder.
 
 ## [0.11.1] - 2026-11-26
 

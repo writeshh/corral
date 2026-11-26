@@ -63,6 +63,11 @@ enum CLI {
       debug <script> [args]        run a PHP script with Xdebug and the PHP version of the site in the current
                                    folder, for example corral debug artisan migrate
       coverage <script> [args]     the same with xdebug.mode=coverage, for example corral coverage vendor/bin/pest --coverage
+      db [name]                    open a database in the app for mysql:// links, for example TablePlus.
+                                   Without a name: the database of the site in the current folder (.env or wp-config.php)
+      db:list                      list the databases on the local MySQL server (127.0.0.1, user root)
+      db:create [name] | db:drop [name] [--yes]
+                                   create or drop a database. db:drop asks first.
       tools                        versions of composer, wp, and laravel
       tools:update [name]          update composer, wp, or laravel (all by default). laravel:update is the same for laravel.
       open [site]
@@ -428,6 +433,24 @@ enum CLI {
                 }
                 // The shell splits the variable, so a value with options like "code -w" works.
                 return try exec(["/bin/sh", "-c", "exec ${VISUAL:-$EDITOR} \"$1\"", "sh", site?.path ?? cwd])
+            case "db:list":
+                return try exec(database(corral.phpCommand(for: nil), "list"))
+            case "db:create":
+                return try exec(database(corral.phpCommand(for: nil), "create", databaseName(corral, arg1, cwd)))
+            case "db:drop":
+                let name = try databaseName(corral, args.dropFirst().first { !$0.hasPrefix("--") }, cwd)
+                guard !systemDatabases.contains(name) else { throw CorralError("\(name) is a MySQL system database.") }
+                guard confirm("Drop the database \(name) and all its tables? This cannot be undone.", Set(args)) else { print("Nothing changed."); return 1 }
+                return try exec(database(corral.phpCommand(for: nil), "drop", name))
+            case "db":
+                let name = try databaseName(corral, arg1, cwd)
+                var url = URLComponents(string: "mysql://root@127.0.0.1:3306")!
+                url.path = "/" + name
+                guard NSWorkspace.shared.urlForApplication(toOpen: url.url!) != nil else {
+                    throw CorralError("No app opens mysql:// links. Install a database app such as TablePlus.")
+                }
+                NSWorkspace.shared.open(url.url!)
+                print(url.string!)
             case "tools":
                 for tool in Corral.tools {
                     let have = corral.installedTool(tool)
@@ -556,13 +579,56 @@ enum CLI {
         return steps
     }
 
-    /// Creates a MySQL database with Corral's PHP (mysqli), so no `mysql` client is needed. It uses the same server
-    /// as the configs that the setup writes: 127.0.0.1, user root, no password. db holds only letters, digits and _.
-    static func createDatabase(_ db: String) -> [String] {
-        ["php", "-r", """
-        try { (new mysqli('127.0.0.1', 'root', ''))->query('CREATE DATABASE IF NOT EXISTS `\(db)`'); }
-        catch (Throwable $e) { fwrite(STDERR, 'MySQL on 127.0.0.1 (user root): ' . $e->getMessage() . PHP_EOL); exit(1); }
-        """]
+    /// Creates a MySQL database with the `php` in PATH. See `database`.
+    static func createDatabase(_ db: String) -> [String] { database(["php"], "create", db) }
+
+    /// MySQL's own databases: db:list hides them and db:drop refuses them.
+    static let systemDatabases: Set<String> = ["information_schema", "mysql", "performance_schema", "sys"]
+
+    /// Lists, creates, or drops a MySQL database with PHP (mysqli), so no `mysql` client is needed. It uses the same server
+    /// as the configs that the setup writes: 127.0.0.1, user root, no password. The name goes in as an argument, not as code.
+    static func database(_ php: [String], _ action: String, _ name: String = "") -> [String] {
+        php + ["-r", """
+        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+        [, $action, $name] = $argv;
+        try {
+            $db = new mysqli('127.0.0.1', 'root', '');
+            if ($action === 'list') {
+                foreach ($db->query('SHOW DATABASES') as $row) {
+                    if (!in_array($row['Database'], ['\(systemDatabases.sorted().joined(separator: "', '"))'])) echo $row['Database'], PHP_EOL;
+                }
+                exit;
+            }
+            $exists = $db->query("SHOW DATABASES LIKE '" . $db->real_escape_string(addcslashes($name, '%_\\\\')) . "'")->num_rows > 0;
+            $quoted = '`' . str_replace('`', '``', $name) . '`';
+            if ($action === 'create') {
+                if ($exists) { echo "Database $name exists.", PHP_EOL; exit; }
+                $db->query("CREATE DATABASE $quoted");
+                echo "Created database $name.", PHP_EOL;
+            } else {
+                if (!$exists) { fwrite(STDERR, "No database $name." . PHP_EOL); exit(1); }
+                $db->query("DROP DATABASE $quoted");
+                echo "Dropped database $name.", PHP_EOL;
+            }
+        } catch (Throwable $e) { fwrite(STDERR, 'MySQL on 127.0.0.1 (user root): ' . $e->getMessage() . PHP_EOL); exit(1); }
+        """, "--", action, name]
+    }
+
+    /// The database of a site: DB_DATABASE in .env, DB_NAME in wp-config.php, or the name that laravel:setup or wp:setup gives it.
+    static func siteDatabase(_ site: Site) -> String {
+        let read = { try? String(contentsOfFile: site.path + "/" + $0, encoding: .utf8) }
+        let patterns = [(".env", #"(?m)^DB_DATABASE=["']?([^"'\s#]+)"#), ("wp-config.php", #"define\(\s*['"]DB_NAME['"]\s*,\s*['"]([^'"]+)['"]"#)]
+        for (file, pattern) in patterns {
+            if let text = read(file), let m = text.firstMatch(of: try! Regex<(Substring, Substring)>(pattern)) { return String(m.1) }
+        }
+        return dbName(Corral.wordPressContent(site.path) == nil ? "" : "wp_", site.name)
+    }
+
+    /// The database that a db command acts on: the one named, else the database of the site in the current folder.
+    static func databaseName(_ corral: Corral, _ name: String?, _ cwd: String) throws -> String {
+        if let name { return name }
+        guard let site = corral.site(containing: cwd) else { throw CorralError("Give a database name, or run the command in a site folder.") }
+        return siteDatabase(site)
     }
 
     /// The .env of a fresh clone: .env.example with the URL and a local MySQL database. Commented DB_ lines count.
