@@ -6,6 +6,10 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `--json` for `status`, `sites`, `secured`, and `php:list`. Scripts and coding agents can read the output without parsing tabs. Other commands reject the option.
+
 ## [0.11.1] - 2026-11-26
 
 ### Security

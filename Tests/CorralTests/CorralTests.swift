@@ -1127,3 +1127,23 @@ import Testing
         #expect(kind.version(at: "\(tmp)/\(name)") == version, "\(name)")
     }
 }
+
+@Test func jsonOutput() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    try FileManager.default.createDirectory(atPath: tmp + "/blog", withIntermediateDirectories: true)
+    let c = Corral(home: tmp + "/home")
+    c.config.links = ["blog": tmp + "/blog"]
+    c.config.proxies = ["api": "http://127.0.0.1:5173"]
+    c.config.secured = ["api"]
+    let app = PortlessApp(host: "shop.localhost", port: 4000, isAlias: false, url: URL(string: "https://shop.localhost")!)
+    let records = CLI.siteRecords(c, portless: [app])
+    let byName = Dictionary(uniqueKeysWithValues: records.map { ($0["name"] as! String, $0) })
+    #expect(byName["blog"]?["kind"] as? String == "php" && byName["blog"]?["path"] as? String == tmp + "/blog")
+    #expect(byName["blog"]?["secured"] as? Bool == false && byName["blog"]?["url"] as? String == "http://blog.test")
+    #expect(byName["api"]?["kind"] as? String == "proxy" && byName["api"]?["proxy"] as? String == "http://127.0.0.1:5173")
+    #expect(byName["shop.localhost"]?["port"] as? Int == 4000)
+    let text = CLI.jsonText(records) // must not throw on NSNull (no PHP installed)
+    #expect(text.contains("\"url\" : \"https://api.test\"")) // slashes not escaped
+    #expect(CLI.securedRecords(c, renewed: ["api"]).first?["host"] as? String == "api.test")
+}

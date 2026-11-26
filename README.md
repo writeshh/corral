@@ -126,6 +126,8 @@ Each subfolder of `~/Corral` becomes a site.
 
 If you do not give a site name, Corral uses the site in the current folder.
 
+Add `--json` to `status`, `sites`, `secured`, or `php:list` to get JSON output for scripts and coding agents, for example `corral sites --json`.
+
 ## Updates
 
 Corral looks for a new release in the GitHub releases of this repository when it starts and then once a day.

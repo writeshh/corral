@@ -64,10 +64,64 @@ enum CLI {
       trust                        trust the local CA in your login keychain
       update                       install the newest release from GitHub
 
+    Add --json to status, sites, secured or php:list for output that scripts can read.
     Run with no arguments to launch the menu bar app.
     """
 
+    static let jsonCommands: Set<String> = ["status", "start", "restart", "sites", "secured", "php:list"]
+
+    /// Sorted keys and no escaped slashes: stable output that diffs well and reads well.
+    static func jsonText(_ value: Any) -> String {
+        let data = try! JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    static func printJSON(_ value: Any) { print(jsonText(value)) }
+
+    static func statusRecord(_ corral: Corral) -> [String: Any] {
+        [
+            "services": corral.status().map { ["name": $0.0, "running": $0.1] },
+            "testGoesToCorral": corral.ownsTest,
+            "missingResolvers": corral.missingResolvers(),
+        ]
+    }
+
+    /// One record for each site: kind "php", "proxy" or "portless".
+    static func siteRecords(_ corral: Corral, portless: [PortlessApp] = Corral.portlessApps()) -> [[String: Any]] {
+        let installed = corral.phpVersions()
+        return corral.sites().map { s in
+            var r: [String: Any] = ["name": s.name, "url": corral.url(s).absoluteString, "secured": corral.config.secured.contains(s.name)]
+            if let proxy = s.proxy {
+                r["kind"] = "proxy"
+                r["proxy"] = proxy.absoluteString
+            } else {
+                r["kind"] = "php"
+                r["path"] = s.path
+                r["docroot"] = s.docroot
+                r["php"] = corral.php(for: s, installed) ?? NSNull()
+            }
+            return r
+        } + portless.map { ["name": $0.host, "url": $0.url.absoluteString, "kind": "portless", "port": $0.port] }
+    }
+
+    static func securedRecords(_ corral: Corral, renewed: [String]) -> [[String: Any]] {
+        corral.sites().filter { corral.config.secured.contains($0.name) }.map { s in
+            [
+                "host": corral.host(s),
+                "expires": corral.certExpiry(corral.certPath(s)).map { $0.ISO8601Format() } ?? NSNull(),
+                "renewed": renewed.contains(s.name),
+            ] as [String: Any]
+        }
+    }
+
     static func run(_ args: [String]) -> Int32 {
+        var args = args
+        let json = args.contains("--json")
+        args.removeAll { $0 == "--json" }
+        if json, !jsonCommands.contains(args.first ?? "") {
+            FileHandle.standardError.write(Data("corral: --json works with \(jsonCommands.sorted().joined(separator: ", ")).\n".utf8))
+            return 1
+        }
         let corral = Corral()
         let cwd = FileManager.default.currentDirectoryPath
         let arg1 = args.count > 1 ? args[1] : nil
@@ -89,6 +143,7 @@ enum CLI {
                 try corral.start()
                 fallthrough
             case "status":
+                if json { printJSON(statusRecord(corral)); break }
                 for (name, up) in corral.status() { print("\(up ? "●" : "○") \(name)") }
                 print(".\(Corral.sharedTLD) goes to \(corral.ownsTest ? "Corral" : "Herd (or nothing)")")
                 let missing = corral.missingResolvers()
@@ -200,6 +255,7 @@ enum CLI {
                 for p in problems { print("\(p.site)\t\(p.problem)") }
                 return problems.isEmpty ? 0 : 1
             case "sites":
+                if json { printJSON(siteRecords(corral)); break }
                 let installed = corral.phpVersions()
                 for s in corral.sites() {
                     let detail = s.proxy == nil ? "php \(corral.php(for: s, installed) ?? "-")\t\(s.docroot)" : "proxy\t\(s.path)"
@@ -208,6 +264,7 @@ enum CLI {
                 for app in Corral.portlessApps() { print("\(app.url.absoluteString)\tportless\tlocalhost:\(app.port)") }
             case "secured":
                 let renewed = try corral.renewCertificates()
+                if json { printJSON(securedRecords(corral, renewed: renewed)); break }
                 if !renewed.isEmpty { print("Renewed: \(renewed.joined(separator: ", "))") }
                 for s in corral.sites() where corral.config.secured.contains(s.name) {
                     let expiry = corral.certExpiry(corral.certPath(s)).map { $0.formatted(date: .abbreviated, time: .omitted) }
@@ -231,6 +288,12 @@ enum CLI {
             case "php:list":
                 let installed = corral.phpVersions()
                 let global = corral.globalPHP(installed)
+                if json {
+                    printJSON(Corral.sortVersions(installed.keys).map {
+                        ["version": $0, "full": corral.phpFullVersion($0) ?? $0, "path": installed[$0]!, "global": $0 == global] as [String: Any]
+                    })
+                    break
+                }
                 for v in Corral.sortVersions(installed.keys) { print("\(v == global ? "*" : " ") \(corral.phpFullVersion(v) ?? v)\t\(installed[v]!)") }
             case "php:install":
                 guard let v = arg1 else { throw CorralError("Usage: corral php:install <\(Corral.phpChoices.joined(separator: "|"))>") }
