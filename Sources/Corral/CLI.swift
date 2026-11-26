@@ -58,6 +58,11 @@ enum CLI {
       mail:attachments [n] [folder]    save the attachments of message n (1 = newest) to the folder (current by default)
       mail:use [name]              send the site's mail to Corral (Laravel: .env, WordPress: a mu-plugin)
       mail:clear                   delete all caught mail
+      tinker [site]                run php artisan tinker with the site's PHP version
+      edit [site]                  open the site folder (the current folder by default) in $VISUAL or $EDITOR
+      debug <script> [args]        run a PHP script with Xdebug and the PHP version of the site in the current
+                                   folder, for example corral debug artisan migrate
+      coverage <script> [args]     the same with xdebug.mode=coverage, for example corral coverage vendor/bin/pest --coverage
       tools                        versions of composer, wp, and laravel
       tools:update [name]          update composer, wp, or laravel (all by default). laravel:update is the same for laravel.
       open [site]
@@ -399,6 +404,30 @@ enum CLI {
                 if let problem = wp.problem { throw CorralError(problem) }
                 if wp != corral.config.wordpress { corral.config.wordpress = wp; try corral.save() }
                 print("user \(wp.adminUser), password \(wp.adminPassword), email \(wp.adminEmail.isEmpty ? "admin@<site>.\(corral.config.tld)" : wp.adminEmail), locale \(wp.locale), table prefix \(wp.tablePrefix)")
+            case "debug", "coverage":
+                var rest = Array(args.dropFirst())
+                if rest.first == "php" { rest.removeFirst() }
+                guard !rest.isEmpty else { throw CorralError("Usage: corral \(args[0]) <script> [arguments], for example corral \(args[0]) vendor/bin/pest") }
+                let x = corral.config.xdebug
+                let options = args[0] == "coverage" ? ["xdebug.mode=coverage"]
+                    : ["xdebug.mode=\(x.mode)", "xdebug.start_with_request=yes", "xdebug.client_host=\(x.clientHost)", "xdebug.client_port=\(x.clientPort)"]
+                return try exec(corral.phpCommand(for: corral.site(containing: cwd), xdebug: options) + rest)
+            case "tinker":
+                guard let site = try arg1.map({ try corral.site(named: $0) }) ?? corral.site(containing: cwd) else {
+                    throw CorralError("No site for \(cwd). Run corral tinker <site>, or run it in a site folder.")
+                }
+                guard FileManager.default.fileExists(atPath: site.path + "/artisan") else { throw CorralError("\(site.name) is not a Laravel site: it has no artisan file.") }
+                FileManager.default.changeCurrentDirectoryPath(site.path)
+                return try exec(corral.phpCommand(for: site) + ["artisan", "tinker"])
+            case "edit":
+                let site = try arg1.map { try corral.site(named: $0) }
+                if let site, site.proxy != nil { throw CorralError("\(site.name) is a proxy site. It has no folder.") }
+                let env = ProcessInfo.processInfo.environment
+                guard [env["VISUAL"], env["EDITOR"]].contains(where: { $0?.isEmpty == false }) else {
+                    throw CorralError("Set VISUAL or EDITOR, for example: export VISUAL=code in ~/.zshrc.")
+                }
+                // The shell splits the variable, so a value with options like "code -w" works.
+                return try exec(["/bin/sh", "-c", "exec ${VISUAL:-$EDITOR} \"$1\"", "sh", site?.path ?? cwd])
             case "tools":
                 for tool in Corral.tools {
                     let have = corral.installedTool(tool)
@@ -741,6 +770,14 @@ enum CLI {
         }
         try data.write(to: URL(fileURLWithPath: path), options: .withoutOverwriting)
         return path
+    }
+
+    /// Replaces Corral with the command, so the command owns the terminal: Ctrl-C, the exit code,
+    /// and an interactive shell like tinker work as if the user ran the command directly.
+    static func exec(_ argv: [String]) throws -> Int32 {
+        fflush(stdout)
+        execv(argv[0], argv.map { strdup($0) } + [nil])
+        throw CorralError("Cannot run \(argv[0]): \(String(cString: strerror(errno)))")
     }
 
     /// Runs a command in the current folder with the terminal attached, so the user sees its output.

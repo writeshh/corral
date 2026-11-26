@@ -1147,3 +1147,28 @@ import Testing
     #expect(text.contains("\"url\" : \"https://api.test\"")) // slashes not escaped
     #expect(CLI.securedRecords(c, renewed: ["api"]).first?["host"] as? String == "api.test")
 }
+
+@Test func phpCommandForSite() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let c = Corral(home: tmp + "/home")
+    #expect(throws: CorralError.self) { try c.phpCommand(for: nil) } // no PHP installed
+    for v in ["8.4", "8.5"] {
+        try FileManager.default.createDirectory(atPath: "\(c.phpDir)/\(v)", withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: "\(c.phpDir)/\(v)/php-fpm", contents: nil, attributes: [.posixPermissions: 0o755])
+    }
+    try FileManager.default.createDirectory(atPath: tmp + "/shop/app/Models", withIntermediateDirectories: true)
+    try #"{"php": {"memory_limit": "2G"}}"#.write(toFile: tmp + "/shop/.corral.json", atomically: true, encoding: .utf8)
+    c.config.links = ["shop": tmp + "/shop"]
+    c.config.isolated = ["shop": "8.4"]
+
+    let site = try #require(c.site(containing: tmp + "/shop/app/Models")) // also from a subfolder
+    #expect(site.name == "shop" && c.site(containing: tmp + "/shopping") == nil)
+    let cmd = try c.phpCommand(for: site)
+    #expect(cmd[0] == "\(c.phpDir)/8.4/php" && cmd.contains("memory_limit=2G"))
+    #expect(try c.phpCommand(for: nil)[0] == "\(c.phpDir)/8.5/php") // global: the newest
+    #expect(throws: CorralError.self) { try c.phpCommand(for: site, xdebug: []) } // this build has no xdebug.so
+    FileManager.default.createFile(atPath: "\(c.phpDir)/8.4/xdebug.so", contents: nil)
+    let debug = try c.phpCommand(for: site, xdebug: ["xdebug.mode=coverage"])
+    #expect(debug.suffix(4) == ["-d", "zend_extension=\(c.phpDir)/8.4/xdebug.so", "-d", "xdebug.mode=coverage"])
+}

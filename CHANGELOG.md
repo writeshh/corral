@@ -9,6 +9,9 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `--json` for `status`, `sites`, `secured`, and `php:list`. Scripts and coding agents can read the output without parsing tabs. Other commands reject the option.
+- `corral tinker` runs `php artisan tinker` with the PHP version of the site.
+- `corral edit` opens a site folder in the editor of `$VISUAL` or `$EDITOR`.
+- `corral debug <script>` runs a PHP script with Xdebug, and `corral coverage <script>` runs it with `xdebug.mode=coverage`. Both use the PHP version and `php.ini` values of the site in the current folder, also from a subfolder.
 
 ## [0.11.1] - 2026-11-26
 

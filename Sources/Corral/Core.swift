@@ -255,6 +255,11 @@ final class Corral: @unchecked Sendable {
         return byName.values.sorted { $0.name < $1.name }
     }
 
+    /// The site whose folder holds `dir`, also from a subfolder. The deepest site wins.
+    func site(containing dir: String) -> Site? {
+        sites().filter { $0.proxy == nil && (dir == $0.path || dir.hasPrefix($0.path + "/")) }.max { $0.path.count < $1.path.count }
+    }
+
     func site(named name: String?) throws -> Site {
         let cwd = FileManager.default.currentDirectoryPath
         let all = sites()
@@ -456,6 +461,21 @@ final class Corral: @unchecked Sendable {
     func debugVersions(_ installed: [String: String]) -> [String] {
         guard config.xdebug.enabled else { return [] }
         return neededPHP(installed).filter { installed[$0].flatMap(xdebugPath) != nil }
+    }
+
+    /// The php command line for a site: its PHP version, php.ini, and own php.ini values. Without a site: the global PHP.
+    /// `xdebug` loads the bundled xdebug.so with these settings, for example ["xdebug.mode=coverage"].
+    func phpCommand(for site: Site?, xdebug: [String]? = nil) throws -> [String] {
+        let installed = phpVersions()
+        guard let v = site.flatMap({ php(for: $0, installed) }) ?? globalPHP(installed), let fpm = installed[v] else {
+            throw CorralError("No PHP is installed. Run corral php:install \(Self.phpChoices[0]).")
+        }
+        var options = phpOverrides().map { "\($0.0)=\($0.1)" } + (site?.overrides.php ?? [:]).sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
+        if let xdebug {
+            guard let so = xdebugPath(fpm) else { throw CorralError("The PHP \(v) build has no Xdebug. Run corral php:install \(v) to get the newest build.") }
+            options += ["zend_extension=\(so)"] + xdebug
+        }
+        return [cliPath(fpm)] + iniArgs(fpm) + options.flatMap { ["-d", $0] }
     }
 
     /// The debug pool reads the same php.ini. Xdebug loads only here, so normal requests have no Xdebug cost.

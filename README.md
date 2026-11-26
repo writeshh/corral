@@ -107,6 +107,10 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral mail:attachments [n] [folder]` | Save the attachments of message `n` in a folder (the current folder by default). |
 | `corral mail:use [name]` | Send the mail of a Laravel or WordPress site to Corral, like "Send Mail to Corral" in the site menu of the main window. |
 | `corral mail:clear` | Delete all caught mail. |
+| `corral tinker [site]` | Run `php artisan tinker` in a Laravel site with the site's PHP version. |
+| `corral edit [site]` | Open the site folder (the current folder by default) in the editor of `$VISUAL` or `$EDITOR`. |
+| `corral debug <script> [args]` | Run a PHP script with Xdebug, for example `corral debug artisan migrate`. Corral uses the PHP version and `php.ini` values of the site in the current folder, and the Xdebug settings of `corral xdebug`. |
+| `corral coverage <script> [args]` | Run a PHP script with `xdebug.mode=coverage`, for example `corral coverage vendor/bin/pest --coverage`. |
 | `corral tools` | Show the versions of `composer`, `wp`, and `laravel`. See [Bundled tools](#bundled-tools). |
 | `corral tools:update [name]` | Update `composer`, `wp`, or `laravel` (all by default). |
 | `corral open [site]` | Open a site in the browser. |
