@@ -117,6 +117,7 @@ Each subfolder of `~/Corral` becomes a site.
 | `corral db:list` | List the databases on the local MySQL server (127.0.0.1, user `root`, no password). |
 | `corral db:create [name]` | Create a database. Without a name, Corral uses the database of the site in the current folder. |
 | `corral db:drop [name] [--yes]` | Drop a database. Corral asks first, unless you add `--yes`. |
+| `corral mcp` | Run an MCP server for coding agents. See [MCP server](#mcp-server). |
 | `corral tools` | Show the versions of `composer`, `wp`, and `laravel`. See [Bundled tools](#bundled-tools). |
 | `corral tools:update [name]` | Update `composer`, `wp`, or `laravel` (all by default). |
 | `corral open [site]` | Open a site in the browser. |
@@ -451,6 +452,20 @@ The worktree is now at `feature-login.blog.test`.
 A worktree uses the HTTPS setting and the PHP version of its site, and its own `.corral.json`.
 Corral finds new worktrees when the services start, like new folders in a parked folder.
 A Laravel worktree has its own `.env`. Set `APP_URL` and the database in it.
+
+## MCP server
+
+`corral mcp` is an MCP server for coding agents, such as Claude Code, Cursor, or Codex. It uses stdin and stdout.
+Add it to Claude Code with this command:
+
+```bash
+claude mcp add corral -- corral mcp
+```
+
+Other agents need the command `corral mcp` in their MCP settings.
+The agent can then list sites, show the service status, restart the services, check the sites, change PHP versions and HTTPS, read the recorded queries and the caught mail, and list and create databases.
+Each tool runs one `corral` command. Commands that ask questions, open a shell, or delete data are not tools.
+Without a site name, a tool uses the site in the folder where the agent starts the server.
 
 ## Development servers and portless
 

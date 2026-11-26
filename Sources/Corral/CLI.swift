@@ -71,6 +71,8 @@ enum CLI {
       db:list                      list the databases on the local MySQL server (127.0.0.1, user root)
       db:create [name] | db:drop [name] [--yes]
                                    create or drop a database. db:drop asks first.
+      mcp                          run an MCP server on stdin and stdout for coding agents, for example
+                                   claude mcp add corral -- corral mcp
       tools                        versions of composer, wp, and laravel
       tools:update [name]          update composer, wp, or laravel (all by default). laravel:update is the same for laravel.
       open [site]
@@ -452,6 +454,8 @@ enum CLI {
                 }
                 print("Sharing \(corral.url(site).absoluteString) with \(use). Press Ctrl-C to stop.")
                 return try exec(["/usr/bin/env"] + shareCommand(use, host: corral.host(site), secured: corral.isSecured(site)))
+            case "mcp":
+                return serveMCP()
             case "db:list":
                 return try exec(database(corral.phpCommand(for: nil), "list"))
             case "db:create":

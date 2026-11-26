@@ -1230,3 +1230,26 @@ import Testing
     #expect(c.isSecured(ui) && c.url(ui).absoluteString == "https://feature-new-ui.shop.test") // follows the parent
     #expect(c.php(for: ui, ["8.4": "x", "8.5": "y"]) == "8.4")
 }
+
+@Test func mcpServer() throws {
+    var ran: [[String]] = []
+    let run = { (argv: [String]) -> (Int32, String) in ran.append(argv); return (argv.first == "use" ? 1 : 0, "out") }
+    let reply = { (m: [String: Any]) in CLI.mcpResponse(m, run: run) }
+
+    #expect(reply(["jsonrpc": "2.0", "method": "notifications/initialized"]) == nil) // no id: a notification gets no answer
+    let initialize = try #require(reply(["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["protocolVersion": "2025-03-26"]])?["result"] as? [String: Any])
+    #expect(initialize["protocolVersion"] as? String == "2025-03-26")
+    let tools = try #require((reply(["id": 2, "method": "tools/list"])?["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+    #expect(tools.count == CLI.mcpTools.count && !tools.contains { ["db_drop", "uninstall", "tinker"].contains($0["name"] as? String) })
+    #expect(try JSONSerialization.data(withJSONObject: tools).count > 0) // valid JSON for the client
+
+    let call = { (name: String, args: [String: Any]) in reply(["id": "c", "method": "tools/call", "params": ["name": name, "arguments": args]])?["result"] as? [String: Any] }
+    #expect(call("isolate", ["version": "8.4", "site": "shop"])?["isError"] as? Bool == false)
+    #expect(call("queries", ["count": 3]) != nil)
+    #expect(call("secure", [:]) != nil)
+    #expect(ran == [["isolate", "8.4", "shop"], ["queries:list", "3"], ["secure"]])
+    #expect(call("use_php", ["version": "9.9"])?["isError"] as? Bool == true) // a failed command is a tool error
+    #expect(call("isolate", ["site": "shop"])?["isError"] as? Bool == true && ran.count == 4) // missing version: nothing runs
+    #expect(reply(["id": 9, "method": "tools/call", "params": ["name": "uninstall"]])?["error"] != nil)
+    #expect(reply(["id": 10, "method": "resources/list"])?["error"] != nil)
+}
