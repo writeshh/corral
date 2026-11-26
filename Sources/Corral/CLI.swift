@@ -103,7 +103,7 @@ enum CLI {
     static func siteRecords(_ corral: Corral, portless: [PortlessApp] = Corral.portlessApps()) -> [[String: Any]] {
         let installed = corral.phpVersions()
         return corral.sites().map { s in
-            var r: [String: Any] = ["name": s.name, "url": corral.url(s).absoluteString, "secured": corral.config.secured.contains(s.name)]
+            var r: [String: Any] = ["name": s.name, "url": corral.url(s).absoluteString, "secured": corral.isSecured(s)]
             if let proxy = s.proxy {
                 r["kind"] = "proxy"
                 r["proxy"] = proxy.absoluteString
@@ -118,7 +118,7 @@ enum CLI {
     }
 
     static func securedRecords(_ corral: Corral, renewed: [String]) -> [[String: Any]] {
-        corral.sites().filter { corral.config.secured.contains($0.name) }.map { s in
+        corral.sites().filter(corral.isSecured).map { s in
             [
                 "host": corral.host(s),
                 "expires": corral.certExpiry(corral.certPath(s)).map { $0.ISO8601Format() } ?? NSNull(),
@@ -279,7 +279,7 @@ enum CLI {
                 let renewed = try corral.renewCertificates()
                 if json { printJSON(securedRecords(corral, renewed: renewed)); break }
                 if !renewed.isEmpty { print("Renewed: \(renewed.joined(separator: ", "))") }
-                for s in corral.sites() where corral.config.secured.contains(s.name) {
+                for s in corral.sites() where corral.isSecured(s) {
                     let expiry = corral.certExpiry(corral.certPath(s)).map { $0.formatted(date: .abbreviated, time: .omitted) }
                     print("\(corral.host(s))\texpires \(expiry ?? "unknown")")
                 }
@@ -451,7 +451,7 @@ enum CLI {
                     throw CorralError("\(tool.map { "\($0) is not in PATH" } ?? "No tunnel tool is in PATH"). Install one: brew install cloudflared (no account needed), brew install ngrok, or composer global require exposedev/expose.")
                 }
                 print("Sharing \(corral.url(site).absoluteString) with \(use). Press Ctrl-C to stop.")
-                return try exec(["/usr/bin/env"] + shareCommand(use, host: corral.host(site), secured: corral.config.secured.contains(site.name)))
+                return try exec(["/usr/bin/env"] + shareCommand(use, host: corral.host(site), secured: corral.isSecured(site)))
             case "db:list":
                 return try exec(database(corral.phpCommand(for: nil), "list"))
             case "db:create":

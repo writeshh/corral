@@ -14,6 +14,7 @@ Corral connects to the internet only to install a PHP version and to look for a 
 - Serve sites over HTTPS with certificates from a local certificate authority (CA).
 - Use one global PHP version, or pin a different version to a site.
 - Answer subdomains, for example `api.blog.test`.
+- Serve each Git worktree of a site as a subdomain, for example `feature-login.blog.test`.
 - Control everything from the menu bar or from the `corral` command.
 - Include nginx and dnsmasq. Install PHP with one command.
 - Move from Laravel Herd in one step, or run next to Herd.
@@ -434,6 +435,22 @@ Quit Herd first, because Herd takes `.test` back while it runs.
 Herd and Corral do not use the same IP addresses or ports, so both can run at the same time.
 
 A `config.json` from an earlier Corral build keeps `.internal` as the main TLD, with `.test` as the second TLD.
+
+## Git worktrees
+
+Corral serves each linked Git worktree of a parked or linked site as a subdomain of that site.
+The subdomain is the branch name, with `/` and `.` changed to `-`. A worktree with no branch uses its folder name.
+
+```bash
+cd ~/Sites/blog
+git worktree add -b feature/login ../blog-login
+corral restart
+```
+
+The worktree is now at `feature-login.blog.test`.
+A worktree uses the HTTPS setting and the PHP version of its site, and its own `.corral.json`.
+Corral finds new worktrees when the services start, like new folders in a parked folder.
+A Laravel worktree has its own `.env`. Set `APP_URL` and the database in it.
 
 ## Development servers and portless
 

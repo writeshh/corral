@@ -13,6 +13,7 @@ The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `corral edit` opens a site folder in the editor of `$VISUAL` or `$EDITOR`.
 - `corral debug <script>` runs a PHP script with Xdebug, and `corral coverage <script>` runs it with `xdebug.mode=coverage`. Both use the PHP version and `php.ini` values of the site in the current folder, also from a subfolder.
 - `corral share` shares a site on a public URL through `cloudflared`, `ngrok`, or `expose`. The tunnel sends the site's name to nginx, so nginx picks the site, also when the site uses HTTPS.
+- Corral serves each Git worktree of a site as a subdomain, for example `feature-login.blog.test` for the branch `feature/login`. A worktree uses the HTTPS setting and the PHP version of its site.
 - The PHP builds have imagick and mongodb as shared extensions. Corral loads them in PHP-FPM and in the `php` command. Update each PHP version in Settings > PHP to get them.
 - `corral db:list`, `db:create`, and `db:drop` manage the databases on the local MySQL server, with no `mysql` client. `corral db` opens a database in the app for `mysql://` links, for example TablePlus. Without a name, each command uses the database of the site in the current folder.
 

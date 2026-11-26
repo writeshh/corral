@@ -134,6 +134,7 @@ struct Site: Identifiable, Equatable {
     var overrides = SiteOverrides()
     var overridesError: String?
     var proxy: URL?
+    var parent: String? // a Git worktree of this site: it follows the site's HTTPS and PHP settings
     var id: String { name }
 
     /// A proxy site: nginx forwards requests to `proxy`, for example a Next.js dev server.
@@ -251,8 +252,38 @@ final class Corral: @unchecked Sendable {
             }
         }
         for (name, path) in config.links { byName[name] = Site(name: name, path: path) } // links win over parked
+        for site in byName.values {
+            for wt in Self.worktrees(of: site.path) where byName["\(wt.label).\(site.name)"] == nil {
+                var tree = Site(name: "\(wt.label).\(site.name)", path: wt.path)
+                tree.parent = site.name
+                byName[tree.name] = tree
+            }
+        }
         for (name, url) in config.proxies { if let url = URL(string: url) { byName[name] = Site(name: name, proxy: url) } }
         return byName.values.sorted { $0.name < $1.name }
+    }
+
+    /// The linked Git worktrees of a repository, with a host label from the branch (the folder name when detached).
+    /// It reads .git/worktrees and starts no git process: sites() runs often. Dots become dashes, so the
+    /// label stays one level below the site and the site's *.<site> certificate pattern fits.
+    static func worktrees(of repo: String) -> [(label: String, path: String)] {
+        let fm = FileManager.default, dir = repo + "/.git/worktrees"
+        return ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).sorted().compactMap { id in
+            guard let gitdir = try? String(contentsOfFile: "\(dir)/\(id)/gitdir", encoding: .utf8) else { return nil }
+            // gitdir is the worktree's .git file. Git 2.48 can write it relative to this folder (worktree.useRelativePaths).
+            let path = URL(fileURLWithPath: gitdir.trimmingCharacters(in: .whitespacesAndNewlines), relativeTo: URL(fileURLWithPath: "\(dir)/\(id)/"))
+                .standardizedFileURL.deletingLastPathComponent().path
+            guard fm.fileExists(atPath: path) else { return nil } // deleted without `git worktree remove`
+            let head = (try? String(contentsOfFile: "\(dir)/\(id)/HEAD", encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let branch = head.hasPrefix("ref: refs/heads/") ? String(head.dropFirst("ref: refs/heads/".count)) : (path as NSString).lastPathComponent
+            let label = slug(branch).replacingOccurrences(of: ".", with: "-")
+            return label.isEmpty ? nil : (label, path)
+        }
+    }
+
+    /// HTTPS is on for the site, or for the site that a worktree belongs to.
+    func isSecured(_ site: Site) -> Bool {
+        config.secured.contains(site.name) || site.parent.map(config.secured.contains) == true
     }
 
     /// The site whose folder holds `dir`, also from a subfolder. The deepest site wins.
@@ -298,7 +329,7 @@ final class Corral: @unchecked Sendable {
     }
 
     func url(_ site: Site) -> URL {
-        URL(string: (config.secured.contains(site.name) ? "https://" : "http://") + host(site))!
+        URL(string: (isSecured(site) ? "https://" : "http://") + host(site))!
     }
 
     // MARK: PHP
@@ -442,7 +473,7 @@ final class Corral: @unchecked Sendable {
     }
 
     func php(for site: Site, _ installed: [String: String]) -> String? {
-        config.isolated[site.name].flatMap { installed[$0] != nil ? $0 : nil } ?? globalPHP(installed)
+        (config.isolated[site.name] ?? site.parent.flatMap { config.isolated[$0] }).flatMap { installed[$0] != nil ? $0 : nil } ?? globalPHP(installed)
     }
 
     func sock(_ version: String, debug: Bool = false) -> String { "\(run)/php\(version)\(debug ? "-debug" : "").sock" }
@@ -662,7 +693,7 @@ final class Corral: @unchecked Sendable {
             let debugSock = version.flatMap { debugging.contains($0) ? self.sock($0, for: site, debug: true) : nil }
             let body = { (https: Bool) in site.proxy.map { self.proxyBody($0, name: site.name) } ?? self.siteBody(site, sock: sock, debugSock: debugSock, https: https) }
             if let proxy = site.proxy { out += proxyUpstream(site.name, proxy) }
-            if config.secured.contains(site.name) {
+            if isSecured(site) {
                 out += """
                     server { listen 127.0.0.1:\(Self.httpPort); server_name \(names); return 301 https://$host$request_uri; }
                     server {
@@ -1205,7 +1236,7 @@ final class Corral: @unchecked Sendable {
     /// ponytail: runs on `corral start` only. Add a daily timer if Corral ever runs for months without a restart.
     @discardableResult
     func renewCertificates(within days: Int = 30) throws -> [String] {
-        let due = sites().filter { config.secured.contains($0.name) && (certNeedsRenewal(certPath($0), days: days) || certNamesChanged($0)) }
+        let due = sites().filter { isSecured($0) && (certNeedsRenewal(certPath($0), days: days) || certNamesChanged($0)) }
         guard !due.isEmpty else { return [] }
         try ensureCA()
         for site in due { try makeCert(hostnames(site)) }
@@ -1528,7 +1559,7 @@ final class Corral: @unchecked Sendable {
     /// It goes to the address that the browser uses, so the check also covers the pf redirect. Some pf rules
     /// (for example from Herd) drop direct connections to nginx's own ports.
     private func request(_ site: Site, log: String?, timeout: Int = 20) -> (status: Int, text: String) {
-        let port = config.secured.contains(site.name) ? 443 : 80, host = host(site)
+        let port = isSecured(site) ? 443 : 80, host = host(site)
         let logStart = log.flatMap { try? FileManager.default.attributesOfItem(atPath: $0)[.size] as? UInt64 } ?? 0
         let body = FileManager.default.temporaryDirectory.appendingPathComponent("corral-check-\(UUID().uuidString)").path
         defer { try? FileManager.default.removeItem(atPath: body) }

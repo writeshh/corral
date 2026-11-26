@@ -120,7 +120,7 @@ struct Snapshot: Sendable {
             let kind = Kind(s)
             return Row(site: s, host: c.host(s), url: c.url(s),
                        detail: s.proxy == nil ? shortPath : "Proxy to \(s.path)",
-                       php: version, secured: c.config.secured.contains(s.name), isolated: c.config.isolated[s.name], kind: kind, version: kind.version(at: s.path))
+                       php: version, secured: c.isSecured(s), isolated: c.config.isolated[s.name], kind: kind, version: kind.version(at: s.path))
         }
         services = c.status().map { (name: $0.0, up: $0.1) }
         versions = Corral.sortVersions(php.keys)
@@ -144,7 +144,7 @@ struct Snapshot: Sendable {
         parked = c.config.parked
         links = c.config.links.sorted { $0.key < $1.key }.map { (name: $0.key, path: $0.value) }
         proxies = c.config.proxies.sorted { $0.key < $1.key }.map { (name: $0.key, url: $0.value) }
-        certs = sites.filter { c.config.secured.contains($0.name) }.map { (host: c.host($0), expires: c.certExpiry(c.certPath($0))) }
+        certs = sites.filter(c.isSecured).map { (host: c.host($0), expires: c.certExpiry(c.certPath($0))) }
         builds = Dictionary(uniqueKeysWithValues: php.keys.compactMap { v in c.phpFullVersion(v).map { (v, $0) } })
         iniPaths = Dictionary(uniqueKeysWithValues: php.map { ($0.key, c.iniPath($0.key, $0.value)) })
         for (v, path) in iniPaths {

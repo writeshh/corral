@@ -1205,3 +1205,28 @@ import Testing
     #expect(CLI.shareCommand("ngrok", host: "shop.test", secured: true) == ["ngrok", "http", "https://127.0.0.1:\(Corral.httpsPort)", "--host-header", "shop.test"])
     #expect(CLI.shareCommand("expose", host: "shop.test", secured: false) == ["expose", "share", "http://shop.test"])
 }
+
+@Test func worktreesAsSubdomains() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("corral-test-\(UUID().uuidString)").resolvingSymlinksInPath().path
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let repo = tmp + "/Sites/shop"
+    try FileManager.default.createDirectory(atPath: repo, withIntermediateDirectories: true)
+    let git = { (args: [String]) in _ = try Corral.sh("/usr/bin/git", ["-C", repo] + args) }
+    try git(["init", "-q", "-b", "main"])
+    try git(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"])
+    try git(["worktree", "add", "-q", "-b", "feature/new.ui", tmp + "/shop-ui"])
+    try git(["worktree", "add", "-q", "--detach", tmp + "/shop-hotfix"])
+    try git(["worktree", "add", "-q", "-b", "gone", tmp + "/shop-gone"])
+    try FileManager.default.removeItem(atPath: tmp + "/shop-gone") // deleted without git worktree remove
+
+    #expect(Set(Corral.worktrees(of: repo).map(\.label)) == ["feature-new-ui", "shop-hotfix"]) // detached: the folder name
+    let c = Corral(home: tmp + "/home")
+    c.config.parked = [tmp + "/Sites"]
+    c.config.secured = ["shop"]
+    c.config.isolated = ["shop": "8.4"]
+    let byName = Dictionary(uniqueKeysWithValues: c.sites().map { ($0.name, $0) })
+    let ui = try #require(byName["feature-new-ui.shop"]) // one level below shop.test: the dot of the branch became a dash
+    #expect(ui.path == tmp + "/shop-ui" && ui.parent == "shop" && byName["shop-hotfix.shop"] != nil && byName["gone.shop"] == nil)
+    #expect(c.isSecured(ui) && c.url(ui).absoluteString == "https://feature-new-ui.shop.test") // follows the parent
+    #expect(c.php(for: ui, ["8.4": "x", "8.5": "y"]) == "8.4")
+}
