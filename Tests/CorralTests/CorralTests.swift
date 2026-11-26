@@ -144,6 +144,10 @@ import Testing
     #expect(Set(installed.keys) == ["8.4"]) // Homebrew PHP on this Mac does not count
     #expect(c.cliPath(fpm) == c.phpDir + "/8.4/php")
     #expect(c.iniArgs(fpm) == ["-c", c.phpDir + "/8.4/php.ini"])
+    // Shared extensions of the build load everywhere, xdebug.so only in the debug pool.
+    for so in ["mongodb.so", "imagick.so", "xdebug.so"] { FileManager.default.createFile(atPath: c.phpDir + "/8.4/" + so, contents: Data()) }
+    #expect(c.iniArgs(fpm) == ["-c", c.phpDir + "/8.4/php.ini", "-d", "extension=\(c.phpDir)/8.4/imagick.so", "-d", "extension=\(c.phpDir)/8.4/mongodb.so"])
+    for so in ["mongodb.so", "imagick.so", "xdebug.so"] { try? FileManager.default.removeItem(atPath: c.phpDir + "/8.4/" + so) }
     try "8.4.27\n".write(toFile: c.phpDir + "/8.4/VERSION", atomically: true, encoding: .utf8)
     #expect(c.phpFullVersion("8.4") == "8.4.27")
 

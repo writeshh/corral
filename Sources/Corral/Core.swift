@@ -323,7 +323,13 @@ final class Corral: @unchecked Sendable {
     func cliPath(_ fpm: String) -> String { (fpm as NSString).deletingLastPathComponent + "/php" }
 
     /// Corral's builds keep php.ini next to the binaries.
-    func iniArgs(_ fpm: String) -> [String] { ["-c", iniPath("", fpm)] }
+    /// php.ini, then the shared extensions of the build, for example imagick.so and mongodb.so.
+    /// xdebug.so is not one of them: it loads only in the debug pool.
+    func iniArgs(_ fpm: String) -> [String] {
+        let dir = (fpm as NSString).deletingLastPathComponent
+        let shared = ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".so") && $0 != "xdebug.so" }.sorted()
+        return ["-c", iniPath("", fpm)] + shared.flatMap { ["-d", "extension=\(dir)/\($0)"] }
+    }
 
     /// The php.ini file that a version reads.
     func iniPath(_ version: String, _ fpm: String) -> String { (fpm as NSString).deletingLastPathComponent + "/php.ini" }
@@ -393,7 +399,8 @@ final class Corral: @unchecked Sendable {
         try sh("/usr/bin/tar", ["xzf", tarball, "-C", tmp])
         try fm.removeItem(atPath: tarball)
         try entry["version"]?.write(toFile: tmp + "/VERSION", atomically: true, encoding: .utf8)
-        for bin in ["php", "php-fpm", "xdebug.so"] where fm.fileExists(atPath: "\(tmp)/\(bin)") { // older builds have no xdebug.so
+        let shared = try fm.contentsOfDirectory(atPath: tmp).filter { $0.hasSuffix(".so") } // xdebug.so, imagick.so, … (older builds have none)
+        for bin in ["php", "php-fpm"] + shared {
             try sh("/usr/bin/codesign", ["--force", "--sign", "-", "\(tmp)/\(bin)"])
         }
         if fm.fileExists(atPath: dir + "/php.ini") {

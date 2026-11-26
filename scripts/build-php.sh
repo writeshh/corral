@@ -9,13 +9,15 @@ MINOR="${1:?usage: scripts/build-php.sh <minor version, for example 8.4>}"
 SPC_VERSION=2.8.5
 SPC_SHA=acf2f25d56d0cbf8e65aa82e5054fef555f7be7c5c38046c6e0819f266d83225  # spc-macos-aarch64.tar.gz
 
-# Herd's set, without imagick, imap, ldap, mongodb, sqlsrv and FFI (large, rarely needed).
+# Herd's set, without imap, ldap, sqlsrv and FFI (rarely needed). imagick and mongodb are shared, see below.
 # mysqli is the one that matters: WordPress needs it, and static-php-cli's "common" builds lack it.
 EXTS="bcmath,bz2,calendar,ctype,curl,dom,exif,fileinfo,filter,ftp,gd,gmp,iconv,igbinary,intl,mbregex,mbstring,mysqli,mysqlnd,opcache,openssl,pcntl,pdo,pdo_mysql,pdo_pgsql,pdo_sqlite,pgsql,phar,posix,readline,redis,session,shmop,simplexml,soap,sockets,sodium,sqlite3,sysvmsg,sysvsem,sysvshm,tokenizer,xml,xmlreader,xmlwriter,xsl,zip,zlib"
 LIBS="freetype,libjpeg,libwebp"
 
-# Xdebug is a shared extension (xdebug.so next to php). Corral loads it only in the debug pool.
-# Herd does the same. 3.5.x supports PHP 8.0 to 8.5.
+# Shared extensions: a .so next to php. Corral loads every one of them, except xdebug.so, which it loads only
+# in the debug pool, like Herd. imagick and mongodb are large and pull in many libraries, so they stay out of the binary.
+SHARED="imagick,mongodb,xdebug"
+# Xdebug 3.5.x supports PHP 8.0 to 8.5.
 XDEBUG_URL=https://xdebug.org/files/xdebug-3.5.3.tgz
 XDEBUG_SHA=f073de91bea046106abf4d6071c963ea71e58571df6ce58948ceca89d121cb2d
 
@@ -50,7 +52,7 @@ rm -rf source buildroot
 ./spc doctor --auto-fix --no-interaction
 # A cached pre-built package wins over a source, so remove the pre-built packages of the pinned libraries.
 ./spc del-download openssl,sqlite --pre-built-only
-./spc download --with-php="$MINOR" --for-extensions="$EXTS,xdebug" --for-libs="$LIBS" --prefer-pre-built --retry=3 \
+./spc download --with-php="$MINOR" --for-extensions="$EXTS,$SHARED" --for-libs="$LIBS" --prefer-pre-built --retry=3 \
     --ignore-cache-sources=php-src --custom-url="xdebug:$XDEBUG_URL" \
     --custom-url="openssl:$OPENSSL_URL" --custom-url="sqlite:$SQLITE_URL"
 # verify <url> <sha256>: the custom URL downloads keep the file name of the URL.
@@ -75,22 +77,27 @@ if [ "$MINOR" = "8.1" ]; then
     export SPC_CMD_VAR_PHP_MAKE_EXTRA_CFLAGS="-g -fstack-protector-strong -fpic -fpie -Werror=unknown-warning-option --target=arm64-apple-darwin -Os -std=gnu17"
 fi
 # Corral passes php.ini with -c. An empty scan folder stops PHP from reading /usr/local/etc/php/conf.d.
-./spc build "$EXTS" --build-shared=xdebug --with-libs="$LIBS" --build-cli --build-fpm \
+./spc build "$EXTS" --build-shared="$SHARED" --with-libs="$LIBS" --build-cli --build-fpm \
     --with-config-file-path=/usr/local/etc/corral-php --with-config-file-scan-dir= --no-interaction
 
 VERSION=$(buildroot/bin/php -n -r 'echo PHP_VERSION;')
 case "$VERSION" in "$MINOR".*) ;; *) echo "Built $VERSION, expected $MINOR.x" >&2; exit 1 ;; esac
-# The shared extension must load into the static binaries, or the build is not usable.
-buildroot/bin/php -n -d zend_extension="$PWD/buildroot/modules/xdebug.so" -r 'exit(extension_loaded("xdebug") ? 0 : 1);' \
-    || { echo "xdebug.so does not load." >&2; exit 1; }
+# Each shared extension must load into the static binaries, or the build is not usable.
+for EXT in $(echo "$SHARED" | tr , ' '); do
+    KIND=extension; [ "$EXT" = xdebug ] && KIND=zend_extension
+    buildroot/bin/php -n -d "$KIND=$PWD/buildroot/modules/$EXT.so" -r "exit(extension_loaded('$EXT') ? 0 : 1);" \
+        || { echo "$EXT.so does not load." >&2; exit 1; }
+done
 # The binary must link the pinned libraries, not the pre-built ones.
 FOUND=$(buildroot/bin/php -n -r 'echo OPENSSL_VERSION_TEXT, "|", SQLite3::version()["versionString"];')
 case "$FOUND" in "OpenSSL $OPENSSL "*"|$SQLITE") ;; *) echo "Unexpected libraries: $FOUND" >&2; exit 1 ;; esac
 
 STAGE=$(mktemp -d)
-cp buildroot/bin/php buildroot/bin/php-fpm buildroot/modules/xdebug.so "$STAGE/"
+SOS=$(echo "$SHARED" | tr , '\n' | sed 's/$/.so/')
+cp buildroot/bin/php buildroot/bin/php-fpm "$STAGE/"
+for SO in $SOS; do cp "buildroot/modules/$SO" "$STAGE/"; done
 NAME="php-$VERSION-macos-$ARCH.tar.gz"
-tar czf "$DIST/$NAME" -C "$STAGE" php php-fpm xdebug.so
+tar czf "$DIST/$NAME" -C "$STAGE" php php-fpm $SOS
 rm -rf "$STAGE"
 (cd "$DIST" && shasum -a 256 "$NAME" > "$NAME.sha256")
 echo "Built $DIST/$NAME"
